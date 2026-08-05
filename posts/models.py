@@ -40,12 +40,16 @@ class Comment(TimeStampMixin):
 
     def __str__(self):
         return f"Comment by {self.author} on {self.post.title}"
+
 # class Author(TimeStampMixin):
 #     author_name = models.CharField(max_length=100)
 #     authro_email = models.EmailField(unique=True)
 #
 #     def __str__(self):
 #         return self.author_name
+
+class Nmae():
+    pass
 
 
 
