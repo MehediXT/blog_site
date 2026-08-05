@@ -27,3 +27,6 @@ def post_detail_view(request, post_id):
         return render(request = request, template_name = 'post_detail.html', context={'post': post})
     except Posts.DoesNotExist:
         return render(request, '404.html', status=404)
+
+class PostDetailView:
+    pass
