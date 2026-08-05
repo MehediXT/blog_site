@@ -1,0 +1,23 @@
+
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Post</title>
+    <!-- Link external CSS styles here -->
+    <!-- <link rel="stylesheet" href="style.css"> -->
+</head>
+<body>
+
+
+	{% for post in post_summary %}
+		<div class="post">
+			<h2>{{ post.title }}</h2>
+			<p>{{ post.content }}</p> <a href={% url 'post_detail' post.id %}>Read more </a>
+	{% endfor %}
+    <!-- Main visible webpage content goes here -->
+
+    <!-- Link external JavaScript files here -->
+    <!-- <script src="script.js"></script> -->
+</body>
+</html>
