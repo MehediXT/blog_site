@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+
+{% block title %}Page not found · The Journal{% endblock %}
+
+{% block content %}
+<section class="not-found container">
+    <p class="error-code">404</p>
+    <h1>This page wandered off.</h1>
+    <p>We couldn’t find the page or story you were looking for.</p>
+    <a class="button" href="{% url 'post-list' %}">Return to stories</a>
+</section>
+{% endblock %}

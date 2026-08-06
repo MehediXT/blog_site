@@ -1,20 +1,25 @@
+{% extends "base.html" %}
 
+{% block title %}{{ post.title }} · The Journal{% endblock %}
 
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Post Details</title>
-    <!-- Link external CSS styles here -->
-    <!-- <link rel="stylesheet" href="style.css"> -->
-</head>
-<body>
-	<h1>{{post.title}}</h1>
-	<h3>{{post.author.first_name}} {{post.author.last_name}}</h3>
-	<p>{{post.content}}</p>
-   <!-- Main visible webpage content goes here -->
+{% block content %}
+<article class="detail container">
+    <a class="back-link" href="{% url 'post-list' %}">← Back to stories</a>
 
-    <!-- Link external JavaScript files here -->
-    <!-- <script src="script.js"></script> -->
-</body>
-</html>
+    <header class="detail-header">
+        {% if post.category %}<p class="eyebrow">{{ post.category.category_name }}</p>{% endif %}
+        <h1>{{ post.title }}</h1>
+        <div class="byline">
+            <span>By {% if post.author %}{{ post.author.get_full_name|default:post.author.username }}{% else %}The Journal{% endif %}</span>
+            <span aria-hidden="true">·</span>
+            <time datetime="{{ post.created_at|date:'Y-m-d' }}">{{ post.created_at|date:"F j, Y" }}</time>
+        </div>
+    </header>
+
+    <div class="article-body">{{ post.content|linebreaks }}</div>
+
+    <footer class="article-footer">
+        <a class="text-link" href="{% url 'post-list' %}">Continue exploring <span aria-hidden="true">↗</span></a>
+    </footer>
+</article>
+{% endblock %}

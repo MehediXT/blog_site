@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in · The Journal{% endblock %}
+
+{% block content %}
+<section class="auth-layout container auth-layout-centered">
+    <div class="auth-intro">
+        <p class="eyebrow">Welcome back</p>
+        <h1>Good ideas are worth returning to.</h1>
+        <p>Sign in to visit your dashboard and keep writing.</p>
+    </div>
+
+    <div class="auth-card">
+        <div class="auth-card-heading">
+            <h2>Sign in</h2>
+            <p>Use your Journal credentials.</p>
+        </div>
+        <form class="auth-form" method="post">
+            {% csrf_token %}
+            {% include "registration/form_fields.html" with form=form %}
+            {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+            <button class="button button-dark button-full" type="submit">Sign in</button>
+        </form>
+        <div class="auth-links">
+            <a href="{% url 'password_reset' %}">Forgot your password?</a>
+            <span>New here? <a href="{% url 'register' %}">Create an account</a></span>
+        </div>
+    </div>
+</section>
+{% endblock %}

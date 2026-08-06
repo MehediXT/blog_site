@@ -13,6 +13,8 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 from pathlib import Path
 import os
 
+from django.core.exceptions import ImproperlyConfigured
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -23,13 +25,24 @@ STATIC_FILES_DIR_PATH= os.path.join(BASE_DIR, 'static')
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-jh3a3hc4oi5=t8#69xvcof9c9(b$m08&3@tl9a++9mck6a&yo*'
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.getenv('DJANGO_DEBUG', 'True').lower() == 'true'
 
-ALLOWED_HOSTS = []
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY')
+if not SECRET_KEY:
+    if DEBUG:
+        SECRET_KEY = 'local-development-only-secret-key-change-this-in-production'
+    else:
+        raise ImproperlyConfigured(
+            'DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is False.'
+        )
+
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
+    if host.strip()
+]
 
 
 # Application definition
@@ -42,6 +55,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'posts',
+    'accounts',
 ]
 
 MIDDLEWARE = [
@@ -77,16 +91,26 @@ WSGI_APPLICATION = 'blog.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'blog',       # The database name you created in Postgres
-        'USER': 'postgres',       # Postgres username (often 'postgres' by default)
-        'PASSWORD': 'password',        # The password for that user
-        'HOST': 'localhost',                # Use 'localhost' or '127.0.0.1' for a local setup
-        'PORT': '5432',                     # 5432 is the default PostgreSQL port
+if os.getenv('DB_ENGINE'):
+    DATABASES = {
+        'default': {
+            'ENGINE': os.environ['DB_ENGINE'],
+            'NAME': os.getenv('DB_NAME', 'blog'),
+            'USER': os.getenv('DB_USER', 'postgres'),
+            'PASSWORD': os.getenv('DB_PASSWORD', ''),
+            'HOST': os.getenv('DB_HOST', 'localhost'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+        }
     }
-}
+else:
+    # SQLite keeps local development self-contained. Set DB_ENGINE and the
+    # other DB_* variables when deploying with PostgreSQL.
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        }
+    }
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators
@@ -122,5 +146,29 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
-STATIC_URL = 'static/'
-STATICFILES_DIR =[STATIC_FILES_DIR_PATH]
+STATIC_URL = '/static/'
+STATICFILES_DIRS = [STATIC_FILES_DIR_PATH]
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'dashboard'
+LOGOUT_REDIRECT_URL = 'login'
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+DEFAULT_FROM_EMAIL = 'The Journal <noreply@example.com>'
+
+# These defaults are safe for local HTTP development. Set the corresponding
+# environment variables when the application is served over HTTPS.
+SECURE_SSL_REDIRECT = os.getenv(
+    'DJANGO_SECURE_SSL_REDIRECT', 'False' if DEBUG else 'True'
+).lower() == 'true'
+SESSION_COOKIE_SECURE = os.getenv(
+    'DJANGO_SESSION_COOKIE_SECURE', 'False' if DEBUG else 'True'
+).lower() == 'true'
+CSRF_COOKIE_SECURE = os.getenv(
+    'DJANGO_CSRF_COOKIE_SECURE', 'False' if DEBUG else 'True'
+).lower() == 'true'
+SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '0'))
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'

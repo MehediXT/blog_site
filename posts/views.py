@@ -1,32 +1,21 @@
-from django.shortcuts import render
+from django.shortcuts import get_object_or_404, render
 from posts.models import Posts
 
-#
-# class PostListView:
-#     def get(self, request):
-#         posts = Post.objects.all()
-#         return render(request, 'posts/post_list.html', {'posts': posts})
-#
+
 def post_list_view(request):
-    try:
-        posts = Posts.objects.all()
-        post_summary_list = []
-        for post in posts:
-             post_summary_list.append({
-            'id': post.id,
-            'title': post.title,
-            'content': post.content[:100]
-        })
-        return render(request = request, template_name ='post_list.html', context={'post_summary': post_summary_list})
-    except Posts.DoesNotExist:
-        return render(request, '404.html', status=404)
+    posts = (
+        query = request.GET.get('query', '')
+        Posts.objects.filter(status='published')
+        .select_related('category', 'author')
+        .order_by('-created_at')
+    )
+    return render(request, 'post_list.html', {'posts': posts})
+
 
 def post_detail_view(request, post_id):
-    try:
-        post = Posts.objects.get(id=post_id)
-        return render(request = request, template_name = 'post_detail.html', context={'post': post})
-    except Posts.DoesNotExist:
-        return render(request, '404.html', status=404)
-
-class PostDetailView:
-    pass
+    post = get_object_or_404(
+        Posts.objects.select_related('category', 'author'),
+        id=post_id,
+        status='published',
+    )
+    return render(request, 'post_detail.html', {'post': post})

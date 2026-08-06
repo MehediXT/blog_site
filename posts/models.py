@@ -48,9 +48,6 @@ class Comment(TimeStampMixin):
 #     def __str__(self):
 #         return self.author_name
 
-class Nmae():
-    pass
-
 
 
 

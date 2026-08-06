@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard · The Journal{% endblock %}
+
+{% block content %}
+<section class="dashboard container">
+    <div class="dashboard-header">
+        <div>
+            <p class="eyebrow">Your space</p>
+            <h1>Welcome back, {{ user.username }}.</h1>
+            <p class="dashboard-intro">Keep an eye on your stories and account from here.</p>
+        </div>
+        <a class="button button-dark" href="{% url 'password_change' %}">Change password</a>
+    </div>
+
+    <div class="stat-grid" aria-label="Account summary">
+        <div class="stat-card">
+            <span class="stat-label">Your stories</span>
+            <strong>{{ my_posts|length }}</strong>
+        </div>
+        <div class="stat-card">
+            <span class="stat-label">Comments</span>
+            <strong>{{ my_comments_count }}</strong>
+        </div>
+        <div class="stat-card stat-card-accent">
+            <span class="stat-label">Account</span>
+            <strong>Active</strong>
+        </div>
+    </div>
+
+    <section class="dashboard-section" aria-labelledby="your-stories-heading">
+        <div class="section-heading">
+            <div>
+                <p class="eyebrow">Writing desk</p>
+                <h2 id="your-stories-heading">Your stories</h2>
+            </div>
+            <span>{{ my_posts|length }} total</span>
+        </div>
+
+        {% if my_posts %}
+            <div class="dashboard-list">
+                {% for post in my_posts %}
+                    {% if post.status == 'published' %}<a class="dashboard-post" href="{% url 'post_detail' post.id %}">{% else %}<div class="dashboard-post">{% endif %}
+                            <div>
+                                <h3>{{ post.title }}</h3>
+                                <p>{{ post.created_at|date:"M j, Y" }}{% if post.category %} · {{ post.category.category_name }}{% endif %}</p>
+                            </div>
+                            <span class="status status-{{ post.status }}">{{ post.get_status_display }}</span>
+                    {% if post.status == 'published' %}</a>{% else %}</div>{% endif %}
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state compact">
+                <h3>Your writing desk is waiting.</h3>
+                <p>Stories you author will appear here once you create them.</p>
+            </div>
+        {% endif %}
+    </section>
+</section>
+{% endblock %}
