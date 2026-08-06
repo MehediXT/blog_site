@@ -4,25 +4,27 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="A thoughtful collection of stories and ideas.">
-    <title>{% block title %}The Journal{% endblock %}</title>
+    <meta name="description" content="Universe of Ilm — Islamic fatwas and beneficial knowledge.">
+    <title>{% block title %}Universe of Ilm{% endblock %}</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{% static 'css/style.css' %}">
+    <script src="{% static 'js/main.js' %}" defer></script>
     {% block extra_head %}{% endblock %}
 </head>
 <body>
+    <div class="scroll-progress" aria-hidden="true"></div>
     <a class="skip-link" href="#main-content">Skip to content</a>
 
     <header class="site-header">
         <div class="container nav-wrap">
-            <a class="brand" href="{% url 'post-list' %}" aria-label="The Journal home">
-                The Journal<span>.</span>
+            <a class="brand" href="{% url 'post-list' %}" aria-label="Universe of Ilm home">
+                Universe of Ilm<span>.</span>
             </a>
 
             <nav class="site-nav" aria-label="Main navigation">
-                <a href="{% url 'post-list' %}">Stories</a>
+                <a href="{% url 'post-list' %}">Fatwas</a>
 
                 {% if user.is_authenticated %}
                     <a href="{% url 'dashboard' %}">Dashboard</a>
@@ -50,8 +52,9 @@
 
     <footer class="site-footer">
         <div class="container footer-wrap">
-            <span>© {% now "Y" %} The Journal</span>
-            <span>Ideas worth keeping.</span>
+            <span>© {% now "Y" %} Universe of Ilm</span>
+            <span>Knowledge with sincerity.</span>
+            <span class="footer-note">For learning only. Consult a qualified scholar for personal rulings.</span>
         </div>
     </footer>
 </body>

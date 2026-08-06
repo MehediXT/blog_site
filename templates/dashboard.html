@@ -1,38 +1,41 @@
 {% extends "base.html" %}
 
-{% block title %}Dashboard · The Journal{% endblock %}
+{% block title %}Dashboard · Universe of Ilm{% endblock %}
 
 {% block content %}
 <section class="dashboard container">
-    <div class="dashboard-header">
+    <div class="dashboard-header reveal">
         <div>
             <p class="eyebrow">Your space</p>
             <h1>Welcome back, {{ user.username }}.</h1>
-            <p class="dashboard-intro">Keep an eye on your stories and account from here.</p>
+            <p class="dashboard-intro">Manage your fatwas and account from here.</p>
         </div>
-        <a class="button button-dark" href="{% url 'password_change' %}">Change password</a>
+            <div class="dashboard-actions">
+                <a class="button button-dark" href="{% url 'create_post_view' %}">Add a fatwa</a>
+                <a class="button button-clear" href="{% url 'password_change' %}">Change password</a>
+            </div>
     </div>
 
     <div class="stat-grid" aria-label="Account summary">
-        <div class="stat-card">
-            <span class="stat-label">Your stories</span>
+        <div class="stat-card reveal">
+            <span class="stat-label">Your fatwas</span>
             <strong>{{ my_posts|length }}</strong>
         </div>
-        <div class="stat-card">
+        <div class="stat-card reveal">
             <span class="stat-label">Comments</span>
             <strong>{{ my_comments_count }}</strong>
         </div>
-        <div class="stat-card stat-card-accent">
+        <div class="stat-card stat-card-accent reveal">
             <span class="stat-label">Account</span>
             <strong>Active</strong>
         </div>
     </div>
 
-    <section class="dashboard-section" aria-labelledby="your-stories-heading">
+    <section class="dashboard-section reveal" aria-labelledby="your-stories-heading">
         <div class="section-heading">
             <div>
-                <p class="eyebrow">Writing desk</p>
-                <h2 id="your-stories-heading">Your stories</h2>
+                <p class="eyebrow">Your contributions</p>
+                <h2 id="your-stories-heading">Your fatwas</h2>
             </div>
             <span>{{ my_posts|length }} total</span>
         </div>
@@ -51,8 +54,8 @@
             </div>
         {% else %}
             <div class="empty-state compact">
-                <h3>Your writing desk is waiting.</h3>
-                <p>Stories you author will appear here once you create them.</p>
+                <h3>Your fatwa library is waiting.</h3>
+                <p>Fatwas you contribute will appear here once you add them.</p>
             </div>
         {% endif %}
     </section>
