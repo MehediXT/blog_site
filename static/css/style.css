@@ -581,6 +581,28 @@ h3 {
     margin: 0 0 1.5em;
 }
 
+.article-references {
+    max-width: 690px;
+    margin-top: 32px;
+    padding: 26px 0;
+    border-top: 1px solid var(--line);
+}
+
+.article-references h2 {
+    margin-top: 6px;
+    font-size: 1.6rem;
+}
+
+.references-content {
+    margin-top: 14px;
+    color: var(--muted);
+    line-height: 1.7;
+}
+
+.references-content p {
+    margin: 0 0 0.75em;
+}
+
 .article-footer {
     max-width: 690px;
     padding-top: 26px;

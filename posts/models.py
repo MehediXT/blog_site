@@ -25,6 +25,11 @@ class Posts(TimeStampMixin):
 
     title = models.CharField(max_length=200)
     content = models.TextField()
+    references = models.TextField(
+        blank=True,
+        default='',
+        help_text='List the sources or links that support this fatwa.',
+    )
     category = models.ForeignKey(
         Category,
         on_delete=models.CASCADE,
@@ -44,7 +49,6 @@ class Posts(TimeStampMixin):
         null=True,
         blank=True,
     )
-    # reference = models.CharField(max_length=200,on_delete=models.SET_NULL, related_name='reference')
 
     def __str__(self):
         return f"{self.category} - {self.title}"

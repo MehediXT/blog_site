@@ -1,8 +1,9 @@
 from django.contrib.auth import get_user_model
 from django.test import TestCase
-from django.urls import reverse
+from django.urls import resolve, reverse
 
 from posts.models import Category, Comment, Posts
+from posts.views import PostCreateView, PostDetailView, PostListView
 
 
 User = get_user_model()
@@ -46,6 +47,20 @@ class PublicPostTests(TestCase):
         self.assertContains(response, self.published_post.title)
         self.assertNotContains(response, 'A culture story')
         self.assertEqual(response.context['result_count'], 1)
+
+    def test_post_urls_resolve_to_class_based_views(self):
+        view_cases = (
+            (reverse('post-list'), PostListView),
+            (
+                reverse('post_detail', args=[self.published_post.id]),
+                PostDetailView,
+            ),
+            (reverse('create_post_view'), PostCreateView),
+        )
+
+        for url, view_class in view_cases:
+            with self.subTest(url=url):
+                self.assertIs(resolve(url).func.view_class, view_class)
 
     def test_category_filter_returns_matching_published_posts(self):
         culture_post = Posts.objects.create(
@@ -104,18 +119,25 @@ class PublicPostTests(TestCase):
             {
                 'title': 'A new story',
                 'content': 'This is a new story.',
+                'references': 'https://example.com/trusted-source',
                 'status': 'published',
             },
         )
 
         self.assertRedirects(response, reverse('dashboard'))
-        self.assertTrue(
-            Posts.objects.filter(
-                title='A new story',
-                author=self.user,
-                status='published',
-            ).exists()
+        post = Posts.objects.get(
+            title='A new story',
+            author=self.user,
+            status='published',
         )
+        self.assertEqual(
+            post.references,
+            'https://example.com/trusted-source',
+        )
+
+        response = self.client.get(reverse('post_detail', args=[post.id]))
+        self.assertContains(response, 'References')
+        self.assertContains(response, 'https://example.com/trusted-source')
 
     def test_logged_in_user_can_add_a_comment(self):
         self.client.force_login(self.user)

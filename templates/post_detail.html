@@ -18,6 +18,14 @@
 
     <div class="article-body reveal">{{ post.content|linebreaks }}</div>
 
+    {% if post.references %}
+        <section class="article-references reveal" aria-labelledby="references-heading">
+            <p class="eyebrow">Supporting sources</p>
+            <h2 id="references-heading">References</h2>
+            <div class="references-content">{{ post.references|urlize|linebreaks }}</div>
+        </section>
+    {% endif %}
+
     <footer class="article-footer reveal">
         <a class="text-link" href="{% url 'post-list' %}">Explore more fatwas <span aria-hidden="true">↗</span></a>
     </footer>
