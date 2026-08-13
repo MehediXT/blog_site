@@ -18,7 +18,7 @@ Universe of Ilm is a Django web application for publishing and discovering Islam
 
 - Python 3.12+
 - Django 6.0+
-- SQLite or PostgreSQL
+- PostgreSQL
 - HTML, CSS, and JavaScript
 
 ## Local setup

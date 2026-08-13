@@ -25,7 +25,7 @@ class Posts(TimeStampMixin):
 
     title = models.CharField(max_length=200)
     content = models.TextField()
-    references = models.TextField(
+    references = models.CharField(max_length=200,
         blank=True,
         default='',
         help_text='List the sources or links that support this fatwa.',
