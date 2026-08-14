@@ -34,3 +34,6 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             author=self.request.user
         ).count()
         return context
+
+class home():
+    pass
