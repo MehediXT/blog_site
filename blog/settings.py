@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'posts',
     'accounts',
+    'debug_toolbar',
 ]
 
 MIDDLEWARE = [
@@ -95,7 +96,7 @@ if os.getenv('DB_ENGINE'):
     DATABASES = {
         'default': {
             'ENGINE': os.environ['DB_ENGINE'],
-            'NAME': os.getenv('DB_NAME', 'blog'),
+            'NAME': os.getenv('DB_NAME', 'blog_site'),
             'USER': os.getenv('DB_USER', 'postgres'),
             'PASSWORD': os.getenv('DB_PASSWORD', ''),
             'HOST': os.getenv('DB_HOST', 'localhost'),
