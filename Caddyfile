@@ -1,0 +1,15 @@
+{
+    auto_https off
+}
+
+:80 {
+    handle /api/* {
+        reverse_proxy django:8000
+    }
+    handle /admin/* {
+        reverse_proxy django:8000
+    }
+    handle {
+        reverse_proxy frontend:3000
+    }
+}

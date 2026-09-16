@@ -107,60 +107,18 @@ class PublicPostTests(TestCase):
 
         self.assertEqual(response.status_code, 404)
 
-    def test_logged_in_user_can_create_a_post(self):
+    def test_legacy_post_creation_is_retired(self):
         self.client.force_login(self.user)
 
         response = self.client.get(reverse('create_post_view'))
+        self.assertEqual(response.status_code, 410)
 
-        self.assertEqual(response.status_code, 200)
-
-        response = self.client.post(
-            reverse('create_post_view'),
-            {
-                'title': 'A new story',
-                'content': 'This is a new story.',
-                'references': 'https://example.com/trusted-source',
-                'status': 'published',
-            },
-        )
-
-        self.assertRedirects(response, reverse('dashboard'))
-        post = Posts.objects.get(
-            title='A new story',
-            author=self.user,
-            status='published',
-        )
-        self.assertEqual(
-            post.references,
-            'https://example.com/trusted-source',
-        )
-
-        response = self.client.get(reverse('post_detail', args=[post.id]))
-        self.assertContains(response, 'References')
-        self.assertContains(response, 'https://example.com/trusted-source')
-
-    def test_logged_in_user_can_add_a_comment(self):
+    def test_legacy_comments_are_retired(self):
         self.client.force_login(self.user)
 
         response = self.client.post(
             reverse('post_detail', args=[self.published_post.id]),
             {'body': 'This is a helpful comment.'},
         )
-
-        self.assertRedirects(
-            response,
-            reverse('post_detail', args=[self.published_post.id]),
-        )
-        self.assertTrue(
-            Comment.objects.filter(
-                post=self.published_post,
-                author=self.user,
-                body='This is a helpful comment.',
-            ).exists()
-        )
-
-        response = self.client.get(
-            reverse('post_detail', args=[self.published_post.id])
-        )
-
-        self.assertContains(response, 'This is a helpful comment.')
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(Comment.objects.filter(post=self.published_post).exists())

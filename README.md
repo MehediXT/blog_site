@@ -1,25 +1,27 @@
 # Universe of Ilm
 
-Universe of Ilm is a Django web application for publishing and discovering Islamic guidance. Contributors can create fatwas, keep them as drafts or publish them, add supporting references, and discuss published entries through threaded comments.
+Universe of Ilm is a bilingual Islamic question-and-answer platform. Registered users submit public or private questions; a moderator assigns a verified scholar and a different reviewer; only an approved revision becomes a released fatwa.
 
 ## Features
 
-- User registration, login, logout, password change, and password reset
-- Personal dashboard showing a user's posts and comment count
-- Draft and published post states
-- Categories, keyword search across post content and references, and category filtering
-- Optional supporting references with clickable URLs
-- Threaded comments and replies for authenticated users
-- Class-based list, detail, create, registration, and dashboard views
-- Responsive templates and a custom 404 page
-- SQLite for local development and optional PostgreSQL configuration
+- Session authentication with CSRF-protected JSON endpoints
+- Email verification state before question submission
+- Private-by-default questions and restricted clarification history
+- Moderator assignment to two different approved scholars
+- Immutable answer revisions and independent review decisions
+- Public publications that contain only approved, redacted wording
+- Bookmarks, in-app notifications, and a durable email outbox
+- Bangla and English public shell with locale-prefixed Next.js routes
+- Legacy posts and comments retained for migration but no longer writable
 
 ## Technology
 
 - Python 3.12+
 - Django 6.0+
+- Django REST Framework (production dependency)
+- Next.js and TypeScript
 - PostgreSQL
-- HTML, CSS, and JavaScript
+- Redis and Celery
 
 ## Local setup
 
@@ -43,10 +45,10 @@ On Windows PowerShell, activate it with:
 .venv\Scripts\Activate.ps1
 ```
 
-Install Django:
+Install the pinned backend dependencies:
 
 ```bash
-python -m pip install "Django>=6.0,<6.2"
+python -m pip install -r requirements.txt
 ```
 
 Apply the database migrations:
@@ -68,6 +70,12 @@ python manage.py runserver
 ```
 
 Open `http://127.0.0.1:8000/` in a browser. The administration site is available at `http://127.0.0.1:8000/admin/`.
+
+For the planned PostgreSQL, Redis, Django, Celery, Caddy, and Next.js stack, copy `.env.example` to `.env`, set the secrets, and run:
+
+```bash
+docker compose up --build
+```
 
 ## Configuration
 
@@ -113,11 +121,17 @@ For production, set a strong `DJANGO_SECRET_KEY`, disable debug mode, configure 
 | `/accounts/password-reset/` | Password reset workflow |
 | `/admin/` | Django administration |
 
+The versioned API is under `/api/v1/`. Start with `/api/v1/auth/csrf/`, then use `/api/v1/auth/register/`, `/api/v1/me/questions/`, `/api/v1/fatwas/`, `/api/v1/scholar/assignments/`, and `/api/v1/reviews/`. Private records return 404 when the signed-in user is not part of the authorized team.
+
 ## Project structure
 
 ```text
 blog_site/
-├── accounts/          # Authentication forms, views, URLs, and tests
+├── accounts/          # Authentication, profiles, email verification, and scholar profiles
+├── fatwas/            # Categories, methodologies, answer revisions, publications, reports
+├── questions/         # Private question workflow and clarifications
+├── moderation/        # Moderation app boundary for assignment tools
+├── notifications/     # In-app notifications and durable email outbox
 ├── blog/              # Project settings and root URL configuration
 ├── posts/             # Post, category, and comment models and views
 ├── static/            # CSS and JavaScript
@@ -145,3 +159,5 @@ When a model changes, create and apply its migration:
 python manage.py makemigrations
 python manage.py migrate
 ```
+
+The original `posts` app is a migration archive. Its old creation and comment routes return `410 Gone`; new content must use the question/review workflow.

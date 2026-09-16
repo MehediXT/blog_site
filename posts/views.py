@@ -1,5 +1,6 @@
 from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db.models import Count, Q
+from django.http import HttpResponseGone
 from django.shortcuts import get_object_or_404
 from django.urls import reverse, reverse_lazy
 from django.views.generic import CreateView, DetailView, ListView
@@ -85,15 +86,9 @@ class PostDetailView(FormMixin, DetailView):
         return context
 
     def post(self, request, *args, **kwargs):
-        self.object = self.get_object()
-
-        if not request.user.is_authenticated:
-            return self.render_to_response(self.get_context_data())
-
-        form = self.get_form()
-        if form.is_valid():
-            return self.form_valid(form)
-        return self.form_invalid(form)
+        return HttpResponseGone(
+            'Legacy comments are no longer accepted. Use the question workflow.'
+        )
 
     def form_valid(self, form):
         comment = form.save(commit=False)
@@ -120,6 +115,11 @@ class PostCreateView(LoginRequiredMixin, CreateView):
     form_class = PostCreationForm
     template_name = 'post_creation.html'
     success_url = reverse_lazy('dashboard')
+
+    def dispatch(self, request, *args, **kwargs):
+        return HttpResponseGone(
+            'Legacy post publishing has been retired. Use the question workflow.'
+        )
 
     def form_valid(self, form):
         form.instance.author = self.request.user

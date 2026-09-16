@@ -1,0 +1,441 @@
+UNIVERSE OF ILM — FULL-STACK FATWA PLATFORM
+Full implementation plan
+Agreed: 2026-09-08
+
+1. GOAL AND ARCHITECTURE
+========================
+
+Upgrade the existing blog into a bilingual Islamic question-and-answer website:
+- Normal users ask public or private questions.
+- Administrator-verified ulama write answers.
+- A different senior scholar reviews answers before release.
+- Moderators organize questions, assign scholars, and manage reports.
+- Visitors browse approved public fatwas without an account.
+
+Keep the current Universe of Ilm name.
+
+Technology:
+- Frontend: React with Next.js and TypeScript for public pages and dashboards.
+- Styling: Tailwind CSS for responsive layouts and reusable components.
+- Backend: Django and Django REST Framework for authentication, permissions,
+  workflows, and APIs.
+- Database: PostgreSQL in development, testing, and production.
+- Background jobs: Celery with Redis for email delivery and retryable tasks.
+- Deployment: Docker Compose on one VPS, with Caddy for HTTPS and routing.
+- Administration: React moderation tools plus restricted Django admin.
+
+Use Next.js server rendering for public content and interactive React components
+for forms and dashboards. Django owns business rules and database access.
+
+Keep the existing Django project at the repository root. Add frontend/ for Next.js.
+Separate Django functionality into accounts, questions, fatwas, moderation, and
+notifications.
+
+2. ROLES AND PERMISSIONS
+========================
+
+Visitor:
+- Browse published fatwas, search, and view categories and scholar profiles.
+
+Registered user:
+- Submit questions and view their own private answers.
+- Provide requested clarification, bookmark fatwas, and report content.
+
+Verified scholar:
+- Read assigned questions, request clarification, and draft or revise answers.
+
+Senior reviewer:
+- Review assigned answers, request changes, and approve or reject release.
+
+Moderator:
+- Triage questions, redact public wording, and assign scholars and reviewers.
+- Resolve reports and withdraw content.
+
+Administrator:
+- Verify or suspend scholars and manage roles, categories, methodology labels,
+  and settings.
+
+Roles may be combined, but each action checks the relevant permission.
+
+Enforcement:
+- Registration always creates a normal user. Clients cannot choose roles.
+- Scholars cannot approve their own answers.
+- Moderators and administrators require a separate verified-scholar permission
+  to author or approve answers.
+- Suspension immediately blocks new scholar actions. Existing publications remain
+  available unless withdrawn.
+- Django enforces permissions on every endpoint, including Django admin actions
+  and remaining legacy routes.
+- Private questions are accessible only to their owner, assigned scholar and
+  reviewer, and authorized moderation staff.
+
+Scholar verification is administrator-managed at launch. Record qualifications,
+institution, specialties, supported languages, verification decision, and a private
+verification note. Publish only approved profile information.
+
+3. QUESTION AND ANSWER WORKFLOW
+===============================
+
+Submission and assignment:
+1. The user registers, verifies their email, and opens Ask a Question.
+2. They enter a title, question, language, category, optional madhhab preference,
+   and public/private choice.
+3. The form suggests related published fatwas before submission.
+4. A moderator checks relevance, duplicates, and identifying details.
+5. The moderator assigns a scholar and a different qualified reviewer based on
+   language, specialty, and availability.
+
+Submission rules:
+- Default to private until the user explicitly selects public.
+- Public selection permits publication of an anonymized version.
+- Original submissions and clarification messages never appear directly in
+  public APIs.
+- Unanswered questions appear in the user dashboard, not a public question feed.
+
+Question states:
+  draft -> submitted -> assigned -> in_progress -> answered
+Additional states:
+  needs_clarification, rejected, withdrawn
+
+Users can edit drafts and unassigned submissions. After assignment, additional
+information goes through clarification messages instead of silently changing the
+original question.
+
+Answering and review:
+1. The assigned scholar writes an answer with references and a methodology label.
+2. Drafts can be saved and previewed.
+3. Submission creates an immutable revision for review.
+4. The reviewer approves that revision, requests changes, or rejects it with a
+   reason.
+5. Approval publishes the public fatwa or releases the private answer to its owner.
+6. The user receives an in-app notification and email link.
+
+Answer states:
+  draft -> in_review -> changes_requested -> in_review -> approved
+
+Rejection returns the question to moderation for reassignment or closure.
+
+Use one canonical answer per question at launch. Corrections create new revisions
+requiring review. The existing approved revision stays visible unless withdrawn.
+Preserve author, reviewer, approval date, references, and correction history.
+
+Use database transactions and revision checks to prevent duplicate assignments,
+approval of stale drafts, and lost edits.
+
+Privacy and follow-up:
+- Keep public title/question wording separate from the original submission.
+- Public fatwas never expose the asker's account identity.
+- Before release, an asker can change public consent to private.
+- After publication, an asker can request withdrawal; immediately hide the
+  publication pending moderation.
+- Private-to-public conversion requires explicit consent, redaction, and review.
+- Private answers undergo the same scholarly review as public answers.
+- Follow-up questions create linked submissions and use the normal workflow.
+- Do not carry forward open comments into the new public experience.
+
+4. PAGES AND USER EXPERIENCE
+============================
+
+Public website:
+- Home: prominent search, Ask a Question button, categories, recent fatwas, and
+  explanation of the review process.
+- Fatwa library: search with language, category, scholar, and madhhab filters.
+- Fatwa detail: anonymized question, answer, references, scholar, reviewer, dates,
+  methodology, related answers, bookmark, report, and print controls.
+- Scholar directory/profile: approved biography, qualifications, specialties,
+  languages, and published answers.
+- Information pages: about, methodology, scholar verification, privacy, terms,
+  and contact information.
+- Account pages: registration, login, email verification, and password reset.
+
+User dashboard:
+- Questions grouped by status.
+- Private question and answer detail.
+- Clarification requests and replies.
+- Bookmarks and notifications.
+- Profile, language, password, and email preferences.
+
+Scholar and reviewer dashboards:
+- Assigned questions and review queues.
+- Filters for language, category, and age.
+- Question context and clarification history.
+- Answer editor, reference editor, preview, and revision history.
+- Required feedback for rejection or requested changes.
+
+Moderation dashboard:
+- Incoming questions and assignment tools.
+- Scholar verification and suspension.
+- Public wording/redaction preview.
+- Report queue and publication withdrawal.
+- Category and methodology management.
+- Counts of pending questions, overdue assignments, reviews, and failed
+  notifications.
+
+Design and language:
+- Calm, reading-focused interface with light backgrounds, deep green accents,
+  readable Bangla and English typography, and generous spacing.
+- Complete Bangla and English interface translations; Bangla is the default.
+- Locale-prefixed public routes: /bn/... and /en/....
+- Arabic quotations render with correct right-to-left direction.
+- Questions and answers have an explicit content language.
+- A bilingual interface does not require every fatwa to have two translations.
+- Human-authored translations link to the original and undergo independent review.
+- Show an original-language link when a translation is unavailable.
+- Support keyboard navigation, visible focus, accessible forms, mobile layouts,
+  and loading, error, and empty states.
+
+5. DATABASE AND API DESIGN
+==========================
+
+Main records:
+- Existing Django User: preserve credentials and account identifiers.
+- UserProfile: display name, preferred language, and account preferences.
+- ScholarProfile: biography, qualifications, specialties, verification, suspension.
+- Category / Methodology: translated category labels and approved madhhab or
+  approach labels.
+- Question: owner, original wording, language, privacy consent, status, assignments.
+- ClarificationMessage: restricted conversation between asker and assigned team.
+- Answer / AnswerRevision: canonical answer and versioned question wording, body,
+  references, and language.
+- ReviewDecision: reviewer, exact revision, decision, feedback, timestamp.
+- Publication: public identifier, slug, approved revision, visibility, publication
+  date.
+- Bookmark / Report: saved public fatwas and moderation requests.
+- Notification / DeliveryOutbox: user updates and durable email delivery.
+- AuditEvent: role changes, assignments, reviews, publication and privacy changes.
+
+Keep Django's existing user model and extend it with related profiles and groups.
+Avoid a mid-project user-model replacement. Use protected relationships or archival
+states where deletion would destroy attribution or review history.
+
+API contract:
+Expose versioned JSON endpoints under /api/v1/.
+
+Authentication:
+  /auth/csrf/
+  /auth/register/
+  /auth/login/
+  /auth/logout/
+  Email verification and password-reset endpoints.
+
+Current user:
+  /me/
+  /me/questions/
+  /me/bookmarks/
+  /me/notifications/
+
+Public library:
+  /fatwas/
+  /fatwas/{id}/
+  /categories/
+  /scholars/
+  /methodologies/
+
+Questions:
+  /questions/
+  /questions/{id}/
+  Explicit submit, withdraw, and clarification actions.
+
+Scholar work:
+  /scholar/assignments/
+  Answer draft and submit-for-review actions.
+
+Reviews:
+  /reviews/
+  Explicit approve, request-changes, and reject actions.
+
+Moderation:
+  Question assignment, scholar verification, reports, publication withdrawal.
+
+API conventions:
+- Generate an OpenAPI specification and frontend TypeScript types.
+- Pagination defaults to 20 results and allows a maximum of 100.
+- Return structured field, permission, and workflow-conflict errors.
+- Use explicit transition endpoints. Clients cannot directly write approval state,
+  role, author, or reviewer fields.
+- Public responses use dedicated serializers that omit private fields.
+- Return 404 for inaccessible private records.
+
+Authentication architecture:
+- Use same-origin Django sessions with secure HttpOnly session cookies.
+- Enforce CSRF protection, including explicitly on login and registration.
+- Route /api/ and /admin/ to Django and website routes to Next.js.
+
+Search:
+- Search only approved, visible public revisions.
+- Use PostgreSQL full-text search for English and simple tokenization plus trigram
+  matching for Bangla.
+- Weight titles above answer bodies and references.
+- Validate relevance with real Bangla examples.
+- Index filtering fields and search documents.
+
+Notifications:
+- Notify for clarification, assignment, review decisions, and answer release.
+- Email contains a generic update and authenticated link, never private question
+  or answer text.
+- Write notification events transactionally to an outbox.
+- Retry failed deliveries without duplicating messages.
+
+6. EXISTING-PROJECT MIGRATION
+============================
+
+At inspection, the local database contained one user and no posts, comments, or
+categories. Still support migration of existing models because another environment
+may contain content.
+
+Migration sequence:
+1. Back up SQLite and record source counts.
+2. Create PostgreSQL schema through Django migrations.
+3. Import users with existing IDs and password hashes. Require email verification
+   before new submissions.
+4. Preserve categories and archive legacy posts/comments with source IDs.
+5. Queue legacy posts for review. Do not automatically verify existing authors.
+6. Convert approved legacy posts into standalone fatwas without inventing an
+   original question or asker.
+7. Keep comments in an administrator-only archive.
+8. Map old /post/<id>/ URLs to approved replacement publications.
+9. Reconcile counts, relationships, timestamps, and PostgreSQL sequences.
+
+Repository changes:
+- Replace old unrestricted post-creation and comment routes.
+- Update tests that currently expect every signed-in user to publish.
+- Fix the PostgreSQL password environment-variable mismatch in settings while
+  preserving unrelated local edits.
+- Add dependency manifests and lockfiles, environment examples, development
+  instructions, and production settings.
+- Make debug-toolbar usage development-only.
+- Reconcile installed and documented Django versions and pin a mutually compatible
+  supported dependency set.
+
+7. DEPLOYMENT AND OPERATIONS
+============================
+
+Use Docker Compose services for Caddy, Next.js, Django/Gunicorn, PostgreSQL, Redis,
+and Celery. Maintain separate development and production configuration.
+
+Production requirements:
+- Expose only HTTP/HTTPS publicly; database and Redis ports remain internal.
+- Store secrets outside Git and require production secrets at startup.
+- Use persistent PostgreSQL storage and encrypted off-server backups.
+- Take daily backups with 30-day retention.
+- Rehearse restoration before launch.
+- Initial recovery targets: maximum 24-hour data-loss window and four-hour recovery.
+- Keep private pages/APIs uncached with Cache-Control: no-store and out of sitemaps.
+- Render public fatwas from current approved data without persistent page caching
+  at launch so withdrawal takes effect immediately.
+- Sanitize answer formatting and URLs. Exclude arbitrary HTML and question
+  attachments from v1.
+- Rate-limit login, submission, password reset, and reporting.
+- Require two-factor authentication for privileged accounts.
+- Monitor uptime, API failures, disk space, backup failures, oldest pending
+  questions, and notification backlog.
+- Keep question bodies, credentials, and private references out of application logs.
+
+Provide staging with synthetic content. Production rollout uses a maintenance
+window, final backup/import, smoke tests, and a documented rollback procedure.
+
+Deployment inputs: domain, VPS credentials, SMTP credentials, and backup destination.
+
+8. IMPLEMENTATION PHASES
+========================
+
+Phase 1 — Foundation
+Deliver: PostgreSQL, Docker, API skeleton, Next.js shell, dependency locks, and CI.
+Gate: A fresh checkout starts using documented commands.
+
+Phase 2 — Accounts and roles
+Deliver: Registration, verification, sessions, profiles, scholar approval, and
+privileged MFA.
+Gate: Permission tests prevent role escalation.
+
+Phase 3 — Question workflow
+Deliver: Submission, privacy, moderation, assignment, and clarification.
+Gate: A user and assigned team can complete intake.
+
+Phase 4 — Scholarly review
+Deliver: Answer revisions, references, independent review, and release.
+Gate: No answer is released without valid independent approval.
+
+Phase 5 — Public experience
+Deliver: Bilingual pages, search, profiles, bookmarks, reports, and notifications.
+Gate: Complete mobile and desktop journeys work.
+
+Phase 6 — Migration and launch
+Deliver: Import tools, redirects, security checks, backups, and monitoring.
+Gate: Staging rehearsal and restoration test pass.
+
+9. TEST PLAN AND ACCEPTANCE
+===========================
+
+Required automated tests:
+- Users cannot answer, review, assign, or grant themselves roles.
+- Unassigned scholars cannot access private questions.
+- Reviewers cannot approve their own answers or stale revisions.
+- Simultaneous assignment and approval attempts preserve consistency.
+- Private content never appears in public APIs, search, metadata, sitemaps,
+  emails, or cached responses.
+- Consent changes, withdrawal, rejection, clarification, and suspension work.
+- Corrections preserve the previous approved answer until replacement approval.
+- Bangla, English, Arabic, and unavailable translations render correctly.
+- Search filters and pagination return only eligible publications.
+- Notification retries do not duplicate delivery.
+- Migration preserves account login and content relationships.
+- Legacy publishing endpoints cannot bypass authorization.
+
+Verification tools:
+- Backend integration tests against PostgreSQL.
+- Frontend component checks.
+- Playwright journeys for users, scholars, reviewers, and moderators.
+- CI linting, TypeScript checks, production builds, migration checks, and Django
+  deployment checks.
+
+Launch acceptance:
+A verified user can submit a private or public question; a moderator assigns it;
+a verified scholar answers; a different reviewer approves; the answer reaches
+exactly its intended audience in the selected language.
+
+10. DEFAULTS AND LATER EXPANSION
+================================
+
+Agreed choices:
+- Bangla and English interface.
+- Public or private questions.
+- Independent senior-scholar review before answer release.
+- Moderator-assigned questions.
+- Multiple scholarly traditions with methodology labels on answers.
+- React with Next.js, Django backend, and PostgreSQL.
+- Preserve existing accounts and review legacy content.
+- Complete Q&A platform for the first launch.
+- Docker deployment on one VPS.
+
+Defaults:
+- Human ulama write and review every answer.
+- One canonical answer per question with an explicit methodology label.
+- Username/password login preserves existing account behavior.
+- No guaranteed answer deadline; dashboards show submission age and status.
+- At least two verified scholars are needed for independent review.
+
+Defer until after the Q&A workflow operates reliably:
+- Payments and donations.
+- Live chat and native mobile applications.
+- Audio/video answers and attachments.
+- Public comments and standalone articles.
+- AI-generated answers.
+
+11. TECHNICAL REFERENCES
+========================
+
+Next.js server and client components:
+https://nextjs.org/docs/app/getting-started/server-and-client-components
+
+Django authentication customization:
+https://docs.djangoproject.com/en/6.0/topics/auth/customizing/
+
+Django REST Framework authentication:
+https://www.django-rest-framework.org/api-guide/authentication/
+
+PostgreSQL trigram search:
+https://www.postgresql.org/docs/current/pgtrgm.html
+
+Docker Compose production deployment:
+https://docs.docker.com/compose/how-tos/production/

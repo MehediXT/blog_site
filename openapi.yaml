@@ -1,0 +1,68 @@
+openapi: 3.0.3
+info:
+  title: Universe of Ilm API
+  version: 1.0.0
+  description: Session-authenticated API for the reviewed fatwa workflow.
+servers:
+  - url: /api/v1
+security:
+  - sessionCookie: []
+paths:
+  /auth/csrf/:
+    get:
+      security: []
+      responses: {"200": {description: CSRF token}}
+  /auth/register/:
+    post:
+      security: []
+      requestBody: {$ref: '#/components/requestBodies/Register'}
+      responses: {"201": {description: Account created}, "400": {description: Validation error}}
+  /auth/login/:
+    post:
+      security: []
+      responses: {"200": {description: Session created}, "400": {description: Invalid credentials}}
+  /fatwas/:
+    get:
+      security: []
+      parameters:
+        - {name: q, in: query, schema: {type: string}}
+        - {name: language, in: query, schema: {type: string, enum: [bn, en, ar]}}
+        - {name: category, in: query, schema: {type: string}}
+        - {name: scholar, in: query, schema: {type: integer}}
+        - {name: methodology, in: query, schema: {type: string}}
+        - {name: page, in: query, schema: {type: integer, minimum: 1}}
+        - {name: page_size, in: query, schema: {type: integer, minimum: 1, maximum: 100}}
+      responses: {"200": {description: Approved public fatwas}}
+  /me/questions/:
+    get:
+      responses: {"200": {description: Questions owned by the current user}}
+    post:
+      requestBody: {$ref: '#/components/requestBodies/Question'}
+      responses: {"201": {description: Draft question}, "403": {description: Authentication or verification required}}
+  /me/questions/{question_id}/:
+    parameters: [{name: question_id, in: path, required: true, schema: {type: integer}}]
+    get:
+      responses: {"200": {description: Authorized question}, "404": {description: Not found or inaccessible}}
+    post:
+      description: Use an explicit action of submit, withdraw, clarify, or change_consent.
+      responses: {"200": {description: Workflow transition}, "409": {description: Workflow conflict}}
+  /scholar/questions/{question_id}/answer/:
+    post:
+      parameters: [{name: question_id, in: path, required: true, schema: {type: integer}}]
+      responses: {"201": {description: Draft or submitted revision}, "403": {description: Scholar permission required}}
+  /reviews/{revision_id}/{action}/:
+    post:
+      parameters:
+        - {name: revision_id, in: path, required: true, schema: {type: integer}}
+        - {name: action, in: path, required: true, schema: {type: string, enum: [approve, request-changes, reject]}}
+      responses: {"200": {description: Review recorded}, "409": {description: Stale revision}}
+components:
+  securitySchemes:
+    sessionCookie: {type: apiKey, in: cookie, name: sessionid}
+  requestBodies:
+    Register:
+      required: true
+      content: {application/json: {schema: {type: object, required: [username, email, password]}}}
+    Question:
+      required: true
+      content: {application/json: {schema: {type: object, required: [title, body, language]}}}
