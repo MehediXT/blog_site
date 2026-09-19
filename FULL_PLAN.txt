@@ -27,7 +27,7 @@ Technology:
 Use Next.js server rendering for public content and interactive React components
 for forms and dashboards. Django owns business rules and database access.
 
-Keep the existing Django project at the repository root. Add frontend/ for Next.js.
+Keep the repository split into a backend/ Django service and a frontend/ Next.js app.
 Separate Django functionality into accounts, questions, fatwas, moderation, and
 notifications.
 
@@ -212,9 +212,9 @@ API contract:
 Expose versioned JSON endpoints under /api/v1/.
 
 Authentication:
-  /auth/csrf/
   /auth/register/
-  /auth/login/
+  /auth/token/
+  /auth/token/refresh/
   /auth/logout/
   Email verification and password-reset endpoints.
 
@@ -257,8 +257,10 @@ API conventions:
 - Return 404 for inaccessible private records.
 
 Authentication architecture:
-- Use same-origin Django sessions with secure HttpOnly session cookies.
-- Enforce CSRF protection, including explicitly on login and registration.
+- Use short-lived JWT access tokens and rotating refresh tokens.
+- Blacklist refresh tokens on logout and after rotation.
+- Send API credentials in the Authorization Bearer header; Django sessions remain
+  available only for the admin site.
 - Route /api/ and /admin/ to Django and website routes to Next.js.
 
 Search:
@@ -344,7 +346,7 @@ Deliver: PostgreSQL, Docker, API skeleton, Next.js shell, dependency locks, and 
 Gate: A fresh checkout starts using documented commands.
 
 Phase 2 — Accounts and roles
-Deliver: Registration, verification, sessions, profiles, scholar approval, and
+Deliver: Registration, verification, JWT authentication, profiles, scholar approval, and
 privileged MFA.
 Gate: Permission tests prevent role escalation.
 

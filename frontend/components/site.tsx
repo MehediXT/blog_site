@@ -5,8 +5,6 @@ const copy = {
   bn: {
     brand: 'ইউনিভার্স অব ইলম',
     library: 'ফতোয়া লাইব্রেরি',
-    ask: 'প্রশ্ন করুন',
-    login: 'লগইন',
     eyebrow: 'বিশ্বস্ত জ্ঞান, পর্যালোচিত উত্তর',
     title: 'ইসলামি প্রশ্নের শান্ত, নির্ভরযোগ্য উত্তর।',
     intro: 'যোগ্য আলেমদের উত্তর এবং স্বতন্ত্র পর্যালোচনার মাধ্যমে জ্ঞানকে সবার কাছে সহজ করে তুলি।',
@@ -27,8 +25,6 @@ const copy = {
   en: {
     brand: 'Universe of Ilm',
     library: 'Fatwa library',
-    ask: 'Ask a question',
-    login: 'Log in',
     eyebrow: 'Trusted knowledge, carefully reviewed',
     title: 'Calm, reliable answers to Islamic questions.',
     intro: 'We make guidance easier to access through qualified scholars and independent review.',
@@ -63,8 +59,6 @@ export function Header({ locale }: { locale: Locale }) {
       </Link>
       <nav className="nav-actions" aria-label="Main navigation">
         <Link className="nav-link" href={`/${locale}/fatwas`}>{t.library}</Link>
-        <Link className="nav-link" href={`/accounts/login/`}>{t.login}</Link>
-        <Link className="button button-small" href={`/accounts/register/`}>{t.ask}</Link>
         <Link className="locale-switch" href={`/${otherLocale}`} aria-label={otherLocale === 'bn' ? 'বাংলা' : 'English'}>
           {otherLocale.toUpperCase()}
         </Link>

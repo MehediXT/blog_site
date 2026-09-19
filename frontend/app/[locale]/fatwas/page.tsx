@@ -15,7 +15,7 @@ export default async function FatwaLibrary({
   const locale: Locale = rawLocale;
   const query = await searchParams;
   const q = query.q || '';
-  const [fatwaData, categoryData] = await Promise.all([getFatwas(q, query.category || ''), getCategories()]);
+  const [fatwaData, categoryData] = await Promise.all([getFatwas(locale, q, query.category || ''), getCategories()]);
   const t = text(locale);
   const selectedCategory = query.category || '';
   const visibleFatwas = fatwaData?.results || [];

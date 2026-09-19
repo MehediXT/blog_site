@@ -3,10 +3,13 @@
 }
 
 :80 {
-    handle /api/* {
-        reverse_proxy django:8000
+    @backend path /api* /admin* /static* /media*
+    @static path /static/*
+    handle @static {
+        root * /srv/static
+        file_server
     }
-    handle /admin/* {
+    handle @backend {
         reverse_proxy django:8000
     }
     handle {

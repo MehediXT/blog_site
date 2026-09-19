@@ -8,7 +8,7 @@ export default async function LocaleHome({ params }: { params: Promise<{ locale:
   if (!isLocale(rawLocale)) notFound();
   const locale: Locale = rawLocale;
   const t = text(locale);
-  const [fatwaData, categoryData] = await Promise.all([getFatwas(), getCategories()]);
+  const [fatwaData, categoryData] = await Promise.all([getFatwas(locale), getCategories()]);
   const fatwas = fatwaData?.results || [];
   const categories = categoryData?.results || [];
 
@@ -23,7 +23,6 @@ export default async function LocaleHome({ params }: { params: Promise<{ locale:
             <p className="hero-intro">{t.intro}</p>
             <div className="hero-actions">
               <Link className="button" href={`/${locale}/fatwas`}>{t.browse}</Link>
-              <Link className="quiet-link" href={`/accounts/register/`}>{t.ask} ↗</Link>
             </div>
           </div>
           <div className="hero-note">

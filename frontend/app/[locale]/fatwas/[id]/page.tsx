@@ -7,7 +7,7 @@ export default async function FatwaDetail({ params }: { params: Promise<{ locale
   const { locale: rawLocale, id } = await params;
   if (!isLocale(rawLocale)) notFound();
   const locale: Locale = rawLocale;
-  const data = await getFatwa(id);
+  const data = await getFatwa(locale, id);
   if (!data?.fatwa) notFound();
   const fatwa = data.fatwa;
   const t = text(locale);

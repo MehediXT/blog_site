@@ -19,9 +19,16 @@ services:
       - redis_data:/data
 
   django:
-    build: .
+    build: ./backend
     env_file: .env
-    command: sh -c "python manage.py migrate && gunicorn blog.wsgi:application --bind 0.0.0.0:8000"
+    command: sh -c "python manage.py migrate && python manage.py collectstatic --noinput && gunicorn blog.wsgi:application --bind 0.0.0.0:8000"
+    volumes:
+      - staticfiles_data:/app/staticfiles
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     depends_on:
       db:
         condition: service_healthy
@@ -29,19 +36,26 @@ services:
         condition: service_started
 
   celery:
-    build: .
+    build: ./backend
     env_file: .env
     command: celery -A blog worker --loglevel=INFO
     depends_on:
-      - django
-      - redis
+      django:
+        condition: service_healthy
+      redis:
+        condition: service_started
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        API_ORIGIN: ${API_ORIGIN:-http://django:8000}
     environment:
+      API_ORIGIN: ${API_ORIGIN:-http://django:8000}
       NEXT_PUBLIC_API_ORIGIN: ${NEXT_PUBLIC_API_ORIGIN:-http://django:8000}
     depends_on:
-      - django
+      django:
+        condition: service_healthy
 
   caddy:
     image: caddy:2-alpine
@@ -50,14 +64,18 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - staticfiles_data:/srv/static:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - django
-      - frontend
+      django:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
 volumes:
   postgres_data:
   redis_data:
+  staticfiles_data:
   caddy_data:
   caddy_config:
