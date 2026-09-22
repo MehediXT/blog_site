@@ -15,7 +15,10 @@ const nextConfig: NextConfig = {
       'http://127.0.0.1:8000'
     ).replace(/\/$/, '');
     return [
-      { source: '/api/:path*', destination: `${djangoOrigin}/api/:path*` },
+      // Keep Django's trailing-slash API contract intact. Without this,
+      // browser POSTs are rewritten to `/api/...` and Django cannot redirect
+      // them while preserving the request body.
+      { source: '/api/:path*', destination: `${djangoOrigin}/api/:path*/` },
       { source: '/admin/:path*', destination: `${djangoOrigin}/admin/:path*` },
       { source: '/static/:path*', destination: `${djangoOrigin}/static/:path*` },
       { source: '/media/:path*', destination: `${djangoOrigin}/media/:path*` },

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Footer, Header, text } from '../../../../components/site';
+import { FatwaActions } from '../../../../components/fatwa-actions';
 import { getFatwa, isLocale, type Locale } from '../../../../lib/api';
 
 export default async function FatwaDetail({ params }: { params: Promise<{ locale: string; id: string }> }) {
@@ -36,6 +37,7 @@ export default async function FatwaDetail({ params }: { params: Promise<{ locale
             </section>
           ) : null}
           <div className="detail-footer"><span>{t.scholar}: {fatwa.scholar.name}</span><span>{fatwa.methodology || ''}</span></div>
+          <FatwaActions publicationId={fatwa.id} locale={locale} />
         </article>
       </main>
       <Footer locale={locale} />

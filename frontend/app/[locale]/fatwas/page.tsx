@@ -1,23 +1,30 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { FatwaCard, Footer, Header, text } from '../../../components/site';
-import { getCategories, getFatwas, isLocale, type Locale } from '../../../lib/api';
+import { getCategories, getFatwas, getMethodologies, getScholars, isLocale, type Locale } from '../../../lib/api';
 
 export default async function FatwaLibrary({
   params,
   searchParams,
 }: {
   params: Promise<{ locale: string }>;
-  searchParams: Promise<{ q?: string; category?: string }>;
+  searchParams: Promise<{ q?: string; category?: string; methodology?: string; scholar?: string }>;
 }) {
   const { locale: rawLocale } = await params;
   if (!isLocale(rawLocale)) notFound();
   const locale: Locale = rawLocale;
   const query = await searchParams;
   const q = query.q || '';
-  const [fatwaData, categoryData] = await Promise.all([getFatwas(locale, q, query.category || ''), getCategories()]);
+  const [fatwaData, categoryData, methodologyData, scholarData] = await Promise.all([
+    getFatwas(locale, q, query.category || '', query.methodology || '', query.scholar || ''),
+    getCategories(),
+    getMethodologies(),
+    getScholars(),
+  ]);
   const t = text(locale);
   const selectedCategory = query.category || '';
+  const selectedMethodology = query.methodology || '';
+  const selectedScholar = query.scholar || '';
   const visibleFatwas = fatwaData?.results || [];
 
   return (
@@ -35,6 +42,10 @@ export default async function FatwaLibrary({
           <div className="search-row">
             <input id="fatwa-search" name="q" defaultValue={q} placeholder={t.search} />
             <button className="button" type="submit">{t.searchButton}</button>
+          </div>
+          <div className="filter-selects">
+            <label><span>{locale === 'bn' ? 'পদ্ধতি' : 'Methodology'}</span><select name="methodology" defaultValue={selectedMethodology}><option value="">{locale === 'bn' ? 'সব পদ্ধতি' : 'All methodologies'}</option>{(methodologyData || []).map((item) => <option key={item.slug} value={item.slug}>{locale === 'bn' ? item.name_bn : item.name_en}</option>)}</select></label>
+            <label><span>{locale === 'bn' ? 'আলেম' : 'Scholar'}</span><select name="scholar" defaultValue={selectedScholar}><option value="">{locale === 'bn' ? 'সব আলেম' : 'All scholars'}</option>{scholarData?.results.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           </div>
         </form>
 

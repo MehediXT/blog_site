@@ -23,6 +23,7 @@ export default async function LocaleHome({ params }: { params: Promise<{ locale:
             <p className="hero-intro">{t.intro}</p>
             <div className="hero-actions">
               <Link className="button" href={`/${locale}/fatwas`}>{t.browse}</Link>
+              <Link className="quiet-link" href={`/${locale}/ask`}>{locale === 'bn' ? 'আপনার প্রশ্ন করুন →' : 'Ask your question →'}</Link>
             </div>
           </div>
           <div className="hero-note">

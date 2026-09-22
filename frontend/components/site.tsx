@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { Category, Fatwa, Locale } from '../lib/api';
+import { AuthNav } from './account';
 
 const copy = {
   bn: {
@@ -59,6 +60,8 @@ export function Header({ locale }: { locale: Locale }) {
       </Link>
       <nav className="nav-actions" aria-label="Main navigation">
         <Link className="nav-link" href={`/${locale}/fatwas`}>{t.library}</Link>
+        <Link className="nav-link nav-scholars" href={`/${locale}/scholars`}>{locale === 'bn' ? 'আলেমগণ' : 'Scholars'}</Link>
+        <AuthNav locale={locale} />
         <Link className="locale-switch" href={`/${otherLocale}`} aria-label={otherLocale === 'bn' ? 'বাংলা' : 'English'}>
           {otherLocale.toUpperCase()}
         </Link>

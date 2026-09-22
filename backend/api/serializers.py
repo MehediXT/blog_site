@@ -88,7 +88,8 @@ class CategorySerializer(serializers.ModelSerializer):
 class MethodologySerializer(serializers.ModelSerializer):
     class Meta:
         model = Methodology
-        fields = ('slug', 'name_en', 'name_bn', 'description')
+        fields = ('id', 'slug', 'name_en', 'name_bn', 'description')
+        read_only_fields = ('id',)
 
 
 class ClarificationSerializer(serializers.ModelSerializer):

@@ -101,26 +101,17 @@ WSGI_APPLICATION = 'blog.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
-if os.getenv('DB_ENGINE'):
-    DATABASES = {
-        'default': {
-            'ENGINE': os.environ['DB_ENGINE'],
-            'NAME': os.getenv('DB_NAME', 'blog_site'),
-            'USER': os.getenv('DB_USER', 'postgres'),
-            'PASSWORD': os.getenv('DB_PASSWORD', ''),
-            'HOST': os.getenv('DB_HOST', 'localhost'),
-            'PORT': os.getenv('DB_PORT', '5432'),
-        }
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'blog_site',
+        'USER': 'postgres',
+        'PASSWORD': 'password',
+        'HOST': 'localhost',  # Or your remote database server IP/URL
+        'PORT': '5432',       # Default PostgreSQL port
     }
-else:
-    # SQLite keeps local development self-contained. Set DB_ENGINE and the
-    # other DB_* variables when deploying with PostgreSQL.
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }
+}
+
 
 # Password validation
 # https://docs.djangoproject.com/en/6.0/ref/settings/#auth-password-validators

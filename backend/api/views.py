@@ -8,11 +8,12 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.text import slugify
-from rest_framework import generics, serializers, status
+from rest_framework import serializers, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
-from rest_framework.exceptions import MethodNotAllowed, PermissionDenied, ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
+from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -145,27 +146,19 @@ class EmailOrUsernameTokenSerializer(TokenObtainPairSerializer):
         }
 
 
-class LoginAPIView(generics.ListCreateAPIView):
+class LoginAPIView(APIView):
     permission_classes = (AllowAny,)
-    serializer_class = EmailOrUsernameTokenSerializer
-    pagination_class = None
-    queryset = User.objects.none()
-
-    def list(self, request, *args, **kwargs):
-        raise MethodNotAllowed('GET')
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+    def post(self, request, *args, **kwargs):
+        serializer = EmailOrUsernameTokenSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
-class RegisterAPIView(generics.CreateAPIView):
+class RegisterAPIView(APIView):
     permission_classes = (AllowAny,)
-    serializer_class = RegisterSerializer
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+    def post(self, request, *args, **kwargs):
+        serializer = RegisterSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
         token = EmailVerificationToken.objects.create(
@@ -194,7 +187,7 @@ class RegisterAPIView(generics.CreateAPIView):
         )
 
 
-class LogoutAPIView(generics.GenericAPIView):
+class LogoutAPIView(APIView):
     permission_classes = (IsAuthenticated,)
 
     def post(self, request):
@@ -210,7 +203,7 @@ class LogoutAPIView(generics.GenericAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class VerifyEmailAPIView(generics.GenericAPIView):
+class VerifyEmailAPIView(APIView):
     permission_classes = (AllowAny,)
 
     def get(self, request, token):
@@ -231,38 +224,60 @@ class VerifyEmailAPIView(generics.GenericAPIView):
         return Response({'verified': True})
 
 
-class HealthAPIView(generics.GenericAPIView):
+class HealthAPIView(APIView):
     permission_classes = (AllowAny,)
 
     def get(self, request):
         return Response({'status': 'ok', 'service': 'backend'})
 
 
-class MeAPIView(generics.RetrieveUpdateAPIView):
+class MeAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = MeSerializer
 
-    def get_object(self):
-        return self.request.user
+    def get(self, request, *args, **kwargs):
+        return Response(MeSerializer(request.user).data)
+
+    def put(self, request, *args, **kwargs):
+        return self._update(request)
+
+    def patch(self, request, *args, **kwargs):
+        return self._update(request)
+
+    def _update(self, request):
+        serializer = MeSerializer(request.user, data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(MeSerializer(request.user).data)
 
 
-class QuestionListCreateAPIView(generics.ListCreateAPIView):
+class QuestionListCreateAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = QuestionSerializer
 
     def get_queryset(self):
         return Question.objects.filter(owner=self.request.user).select_related(
             'category', 'assigned_scholar', 'assigned_reviewer'
         ).prefetch_related('clarifications')
 
-    def create(self, request, *args, **kwargs):
-        response = super().create(request, *args, **kwargs)
-        return Response({'question': response.data}, status=response.status_code)
+    def get(self, request, *args, **kwargs):
+        questions = self.get_queryset()
+        paginator = PublicPageNumberPagination()
+        page = paginator.paginate_queryset(questions, request, view=self)
+        return paginator.get_paginated_response(
+            QuestionSerializer(page, many=True, context={'request': request}).data
+        )
+
+    def post(self, request, *args, **kwargs):
+        serializer = QuestionSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        question = serializer.save()
+        return Response(
+            {'question': QuestionSerializer(question, context={'request': request}).data},
+            status=status.HTTP_201_CREATED,
+        )
 
 
-class QuestionDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
+class QuestionDetailAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = QuestionSerializer
 
     def get_queryset(self):
         queryset = Question.objects.select_related('category').prefetch_related(
@@ -274,22 +289,42 @@ class QuestionDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
             | Q(assigned_reviewer=self.request.user)
         ) if not can_moderate(self.request.user) else queryset
 
-    def retrieve(self, request, *args, **kwargs):
-        response = super().retrieve(request, *args, **kwargs)
-        return Response({'question': response.data})
+    def get_object(self, request, pk):
+        return self.get_queryset().filter(pk=pk).first()
 
-    def update(self, request, *args, **kwargs):
-        question = self.get_object()
+    def get(self, request, pk, *args, **kwargs):
+        question = self.get_object(request, pk)
+        if question is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'question': QuestionSerializer(question, context={'request': request}).data})
+
+    def put(self, request, pk, *args, **kwargs):
+        return self._update(request, pk, partial=False)
+
+    def patch(self, request, pk, *args, **kwargs):
+        return self._update(request, pk, partial=True)
+
+    def _update(self, request, pk, partial):
+        question = self.get_object(request, pk)
+        if question is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         if question.owner_id != request.user.id:
             raise PermissionDenied('Only the asker can edit this question.')
         if question.status not in ('draft', 'rejected'):
             raise ValidationError(
                 {'detail': 'Only draft or rejected questions can be edited.'}
             )
-        response = super().update(request, *args, **kwargs)
-        return Response({'question': response.data}, status=response.status_code)
+        serializer = QuestionSerializer(
+            question, data=request.data, partial=partial, context={'request': request}
+        )
+        serializer.is_valid(raise_exception=True)
+        question = serializer.save()
+        return Response({'question': QuestionSerializer(question, context={'request': request}).data})
 
-    def perform_destroy(self, question):
+    def delete(self, request, pk, *args, **kwargs):
+        question = self.get_object(request, pk)
+        if question is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         if question.owner_id != self.request.user.id:
             raise PermissionDenied('Only the asker can withdraw this question.')
         if question.status == 'answered':
@@ -302,9 +337,12 @@ class QuestionDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         Publication.objects.filter(answer__question=question, visibility='public').update(
             visibility='withdrawn', withdrawn_at=timezone.now()
         )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
-    def post(self, request, *args, **kwargs):
-        question = self.get_object()
+    def post(self, request, pk, *args, **kwargs):
+        question = self.get_object(request, pk)
+        if question is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         action_serializer = QuestionActionSerializer(data=request.data)
         action_serializer.is_valid(raise_exception=True)
         data = action_serializer.validated_data
@@ -368,14 +406,12 @@ class QuestionDetailAPIView(generics.RetrieveUpdateDestroyAPIView):
         return Response({'question': QuestionSerializer(question, context={'request': request}).data})
 
 
-class PublicFatwaListAPIView(generics.ListAPIView):
+class PublicFatwaListAPIView(APIView):
     permission_classes = (AllowAny,)
-    serializer_class = PublicFatwaSerializer
-    pagination_class = PublicPageNumberPagination
 
-    def get_queryset(self):
+    def get_queryset(self, request):
         publications = public_publications_queryset()
-        params = self.request.query_params
+        params = request.query_params
         query = params.get('q', '').strip()
         if query:
             publications = publications.filter(
@@ -397,87 +433,76 @@ class PublicFatwaListAPIView(generics.ListAPIView):
             publications = publications.filter(approved_revision__created_by_id=scholar_id)
         return publications
 
+    def get(self, request, *args, **kwargs):
+        paginator = PublicPageNumberPagination()
+        page = paginator.paginate_queryset(self.get_queryset(request), request, view=self)
+        data = PublicFatwaSerializer(page, many=True).data
+        return paginator.get_paginated_response(data)
 
-class PublicFatwaDetailAPIView(generics.RetrieveAPIView):
+
+class PublicFatwaDetailAPIView(APIView):
     permission_classes = (AllowAny,)
-    serializer_class = PublicFatwaSerializer
-    lookup_url_kwarg = 'publication_id'
 
-    def get_queryset(self):
+    def get_queryset(self, request):
         queryset = public_publications_queryset()
-        language = self.request.query_params.get('language')
+        language = request.query_params.get('language')
         return queryset.filter(approved_revision__language=language) if language else queryset
 
-    def retrieve(self, request, *args, **kwargs):
-        response = super().retrieve(request, *args, **kwargs)
-        return Response({'fatwa': response.data})
+    def get(self, request, publication_id, *args, **kwargs):
+        publication = self.get_queryset(request).filter(pk=publication_id).first()
+        if publication is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'fatwa': PublicFatwaSerializer(publication).data})
 
 
-class CategoryListAPIView(generics.ListAPIView):
+class CategoryListAPIView(APIView):
     permission_classes = (AllowAny,)
-    serializer_class = CategorySerializer
-    pagination_class = None
 
-    def get_queryset(self):
-        return Category.objects.filter(is_active=True)
-
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        return Response({'results': response.data})
+    def get(self, request, *args, **kwargs):
+        categories = Category.objects.filter(is_active=True)
+        return Response({'results': CategorySerializer(categories, many=True).data})
 
 
-class MethodologyListAPIView(generics.ListAPIView):
+class MethodologyListAPIView(APIView):
     permission_classes = (AllowAny,)
-    serializer_class = MethodologySerializer
-    pagination_class = None
 
-    def get_queryset(self):
-        return Methodology.objects.filter(is_active=True)
-
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        return Response({'results': response.data})
+    def get(self, request, *args, **kwargs):
+        methodologies = Methodology.objects.filter(is_active=True)
+        return Response({'results': MethodologySerializer(methodologies, many=True).data})
 
 
-class ScholarListAPIView(generics.ListAPIView):
+class ScholarListAPIView(APIView):
     permission_classes = (AllowAny,)
-    serializer_class = ScholarSerializer
-    pagination_class = None
+
+    def get(self, request, *args, **kwargs):
+        scholars = ScholarProfile.objects.filter(
+            verification_status='approved', is_suspended=False
+        ).select_related('user__userprofile')
+        return Response({'results': ScholarSerializer(scholars, many=True).data})
+
+
+class ScholarDetailAPIView(APIView):
+    permission_classes = (AllowAny,)
 
     def get_queryset(self):
         return ScholarProfile.objects.filter(
             verification_status='approved', is_suspended=False
         ).select_related('user__userprofile')
 
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        return Response({'results': response.data})
+    def get(self, request, user_id, *args, **kwargs):
+        scholar = self.get_queryset().filter(user_id=user_id).first()
+        if scholar is None:
+            return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'scholar': ScholarDetailSerializer(scholar).data})
 
 
-class ScholarDetailAPIView(generics.RetrieveAPIView):
-    permission_classes = (AllowAny,)
-    serializer_class = ScholarDetailSerializer
-    lookup_field = 'user_id'
-    lookup_url_kwarg = 'user_id'
-
-    def get_queryset(self):
-        return ScholarProfile.objects.filter(
-            verification_status='approved', is_suspended=False
-        ).select_related('user__userprofile')
-
-    def retrieve(self, request, *args, **kwargs):
-        response = super().retrieve(request, *args, **kwargs)
-        return Response({'scholar': response.data})
-
-
-class ReportCreateAPIView(generics.CreateAPIView):
+class ReportCreateAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = ReportSerializer
 
-    def create(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         data = request.data.copy()
         data['publication_id'] = kwargs['publication_id']
-        serializer = self.get_serializer(data=data)
+        serializer = ReportSerializer(data=data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         report = serializer.save()
         return Response(
@@ -486,10 +511,8 @@ class ReportCreateAPIView(generics.CreateAPIView):
         )
 
 
-class BookmarkListCreateAPIView(generics.ListCreateAPIView):
+class BookmarkListCreateAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = BookmarkSerializer
-    pagination_class = None
 
     def get_queryset(self):
         return Bookmark.objects.filter(
@@ -502,12 +525,12 @@ class BookmarkListCreateAPIView(generics.ListCreateAPIView):
             'publication__approved_revision__created_by__userprofile',
         )
 
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        return Response({'results': [item['fatwa'] for item in response.data]})
+    def get(self, request, *args, **kwargs):
+        bookmarks = self.get_queryset()
+        return Response({'results': BookmarkSerializer(bookmarks, many=True, context={'request': request}).data})
 
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
+    def post(self, request, *args, **kwargs):
+        serializer = BookmarkSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
         serializer.save()
         created = serializer.context.get('created', False)
@@ -524,47 +547,39 @@ class BookmarkListCreateAPIView(generics.ListCreateAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class NotificationListAPIView(generics.ListAPIView):
+class NotificationListAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = NotificationSerializer
-    pagination_class = None
 
-    def get_queryset(self):
-        return Notification.objects.filter(user=self.request.user).order_by('-created_at')[:100]
-
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        return Response({'results': response.data})
+    def get(self, request, *args, **kwargs):
+        notifications = Notification.objects.filter(user=request.user).order_by('-created_at')[:100]
+        return Response({'results': NotificationSerializer(notifications, many=True).data})
 
 
-class ScholarAssignmentListAPIView(generics.ListAPIView):
+class ScholarAssignmentListAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = QuestionSerializer
-    pagination_class = None
 
-    def get_queryset(self):
-        if not can_author(self.request.user):
+    def get_queryset(self, user):
+        if not can_author(user):
             return Question.objects.none()
         return Question.objects.filter(
-            assigned_scholar=self.request.user,
+            assigned_scholar=user,
             status__in=('assigned', 'in_progress', 'needs_clarification'),
         ).select_related('category').prefetch_related('clarifications')
 
-    def list(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):
         if not can_author(request.user):
             return Response({'detail': 'An approved, active scholar profile is required.'}, status=403)
-        response = super().list(request, *args, **kwargs)
-        return Response({'results': response.data})
+        questions = self.get_queryset(request.user)
+        return Response({'results': QuestionSerializer(questions, many=True, context={'request': request}).data})
 
 
-class AnswerCreateAPIView(generics.CreateAPIView):
+class AnswerCreateAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = AnswerActionSerializer
 
-    def create(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         if not can_author(request.user):
             return Response({'detail': 'An approved, active scholar profile is required.'}, status=403)
-        serializer = self.get_serializer(data=request.data)
+        serializer = AnswerActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         question = Question.objects.filter(
@@ -626,21 +641,20 @@ class AnswerCreateAPIView(generics.CreateAPIView):
         )
 
 
-class ReviewQueueAPIView(generics.ListAPIView):
+class ReviewQueueAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    pagination_class = None
 
-    def get_queryset(self):
+    def get_queryset(self, user):
         return AnswerRevision.objects.filter(
-            answer__question__assigned_reviewer=self.request.user,
+            answer__question__assigned_reviewer=user,
             status='in_review',
         ).select_related('answer__question__category', 'created_by')
 
-    def list(self, request, *args, **kwargs):
+    def get(self, request, *args, **kwargs):
         if not can_author(request.user):
             return Response({'detail': 'An approved, active scholar profile is required.'}, status=403)
         results = []
-        for revision in self.get_queryset():
+        for revision in self.get_queryset(request.user):
             results.append({
                 'id': revision.id,
                 'question': QuestionSerializer(revision.answer.question, context={'request': request}).data,
@@ -652,16 +666,15 @@ class ReviewQueueAPIView(generics.ListAPIView):
         return Response({'results': results})
 
 
-class ReviewActionAPIView(generics.GenericAPIView):
+class ReviewActionAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = ReviewActionSerializer
 
     def post(self, request, revision_id, action):
         if action not in ('approve', 'request-changes', 'reject'):
             return Response({'detail': 'Unknown review action.'}, status=400)
         if not can_author(request.user):
             return Response({'detail': 'An approved, active scholar profile is required.'}, status=403)
-        serializer = self.get_serializer(data=request.data)
+        serializer = ReviewActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         feedback = serializer.validated_data.get('feedback', '').strip()
         decision = {
@@ -725,14 +738,13 @@ class ReviewActionAPIView(generics.GenericAPIView):
         return Response({'decision': decision, 'revision_id': revision.id})
 
 
-class AssignQuestionAPIView(generics.CreateAPIView):
+class AssignQuestionAPIView(APIView):
     permission_classes = (IsAuthenticated,)
-    serializer_class = AssignmentSerializer
 
-    def create(self, request, *args, **kwargs):
+    def post(self, request, *args, **kwargs):
         if not can_moderate(request.user):
             return Response({'detail': 'Moderator permission is required.'}, status=403)
-        serializer = self.get_serializer(data=request.data)
+        serializer = AssignmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         scholar = User.objects.filter(pk=data['scholar_id']).first()
