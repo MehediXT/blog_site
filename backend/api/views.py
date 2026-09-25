@@ -26,6 +26,7 @@ from .serializers import (
     CategorySerializer,
     MethodologySerializer,
     MeSerializer,
+    ModerationQuestionSerializer,
     NotificationSerializer,
     PublicFatwaSerializer,
     QuestionActionSerializer,
@@ -33,7 +34,10 @@ from .serializers import (
     RegisterSerializer,
     ReportSerializer,
     ReviewActionSerializer,
+    ScholarApplicationSerializer,
     ScholarDetailSerializer,
+    ScholarModerationActionSerializer,
+    ScholarModerationSerializer,
     ScholarSerializer,
     UserSummarySerializer,
 )
@@ -50,6 +54,17 @@ from fatwas.models import (
 )
 from notifications.models import DeliveryOutbox, Notification
 from questions.models import ClarificationMessage, Question
+from .permissions import (
+    IsAssignedReviewer,
+    IsAssignedScholar,
+    IsClarificationParticipant,
+    IsModerator,
+    IsQuestionOwner,
+    IsQuestionParticipant,
+    IsVerifiedScholar,
+    is_moderator,
+    is_verified_scholar,
+)
 
 
 User = get_user_model()
@@ -82,26 +97,6 @@ def scholar_for(user):
         return user.scholarprofile
     except ScholarProfile.DoesNotExist:
         return None
-
-
-def can_author(user):
-    scholar = scholar_for(user)
-    return bool(scholar and scholar.can_author)
-
-
-def can_moderate(user):
-    return user.is_staff or user.groups.filter(
-        name__in=('moderator', 'administrator')
-    ).exists()
-
-
-def private_access(user, question):
-    return (
-        question.owner_id == user.id
-        or question.assigned_scholar_id == user.id
-        or question.assigned_reviewer_id == user.id
-        or can_moderate(user)
-    )
 
 
 def notify(user, kind, title, target_url=''):
@@ -250,6 +245,72 @@ class MeAPIView(APIView):
         return Response(MeSerializer(request.user).data)
 
 
+class ScholarApplicationAPIView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request, *args, **kwargs):
+        scholar = scholar_for(request.user)
+        return Response({
+            'scholar_profile': (
+                ScholarApplicationSerializer(scholar).data if scholar else None
+            )
+        })
+
+    def post(self, request, *args, **kwargs):
+        if not profile_for(request.user).email_verified:
+            return Response(
+                {
+                    'detail': 'Verify your email before applying as a scholar.',
+                    'code': 'email_unverified',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        scholar = scholar_for(request.user)
+        if scholar and scholar.is_suspended:
+            return Response(
+                {'detail': 'A suspended scholar profile cannot be edited.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = ScholarApplicationSerializer(
+            scholar,
+            data=request.data,
+            context={'request': request},
+        )
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            if scholar is None:
+                scholar = serializer.save(user=request.user)
+                created = True
+            else:
+                scholar = serializer.save()
+                created = False
+
+            # Profile details are never self-approved. Editing an approved
+            # profile sends the complete profile back through verification.
+            scholar.verification_status = 'pending'
+            scholar.verification_note = ''
+            scholar.verified_by = None
+            scholar.verified_at = None
+            scholar.save(update_fields=(
+                'verification_status', 'verification_note', 'verified_by',
+                'verified_at', 'updated_at',
+            ))
+            AuditEvent.objects.create(
+                actor=request.user,
+                event_type='scholar_application_submitted',
+                object_type='scholar_profile',
+                object_id=str(scholar.pk),
+                metadata={'created': created},
+            )
+
+        return Response(
+            {'scholar_profile': ScholarApplicationSerializer(scholar).data},
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
+
+
 class QuestionListCreateAPIView(APIView):
     permission_classes = (IsAuthenticated,)
 
@@ -277,7 +338,7 @@ class QuestionListCreateAPIView(APIView):
 
 
 class QuestionDetailAPIView(APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsAuthenticated, IsQuestionParticipant)
 
     def get_queryset(self):
         queryset = Question.objects.select_related('category').prefetch_related(
@@ -287,10 +348,18 @@ class QuestionDetailAPIView(APIView):
             Q(owner=self.request.user)
             | Q(assigned_scholar=self.request.user)
             | Q(assigned_reviewer=self.request.user)
-        ) if not can_moderate(self.request.user) else queryset
+        ) if not is_moderator(self.request.user) else queryset
 
     def get_object(self, request, pk):
-        return self.get_queryset().filter(pk=pk).first()
+        question = self.get_queryset().filter(pk=pk).first()
+        if question is not None:
+            self.check_object_permissions(request, question)
+        return question
+
+    def require_object_permission(self, request, question, permission_class):
+        permission = permission_class()
+        if not permission.has_object_permission(request, self, question):
+            raise PermissionDenied(permission.message)
 
     def get(self, request, pk, *args, **kwargs):
         question = self.get_object(request, pk)
@@ -308,8 +377,7 @@ class QuestionDetailAPIView(APIView):
         question = self.get_object(request, pk)
         if question is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-        if question.owner_id != request.user.id:
-            raise PermissionDenied('Only the asker can edit this question.')
+        self.require_object_permission(request, question, IsQuestionOwner)
         if question.status not in ('draft', 'rejected'):
             raise ValidationError(
                 {'detail': 'Only draft or rejected questions can be edited.'}
@@ -325,8 +393,7 @@ class QuestionDetailAPIView(APIView):
         question = self.get_object(request, pk)
         if question is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
-        if question.owner_id != self.request.user.id:
-            raise PermissionDenied('Only the asker can withdraw this question.')
+        self.require_object_permission(request, question, IsQuestionOwner)
         if question.status == 'answered':
             raise ValidationError(
                 {'detail': 'Answered questions cannot be deleted.'}
@@ -349,8 +416,7 @@ class QuestionDetailAPIView(APIView):
         action = data['action']
 
         if action == 'submit':
-            if question.owner_id != request.user.id:
-                return Response({'detail': 'Only the asker can submit this question.'}, status=403)
+            self.require_object_permission(request, question, IsQuestionOwner)
             if not profile_for(request.user).email_verified:
                 return Response({'detail': 'Verify your email before submitting a question.', 'code': 'email_unverified'}, status=403)
             if question.status not in ('draft', 'rejected'):
@@ -368,8 +434,7 @@ class QuestionDetailAPIView(APIView):
             question.submitted_at = timezone.now()
             question.save()
         elif action == 'withdraw':
-            if question.owner_id != request.user.id:
-                return Response({'detail': 'Only the asker can withdraw this question.'}, status=403)
+            self.require_object_permission(request, question, IsQuestionOwner)
             if question.status == 'withdrawn':
                 return Response({'detail': 'This question is already withdrawn.', 'code': 'workflow_conflict'}, status=409)
             question.status = 'withdrawn'
@@ -379,8 +444,9 @@ class QuestionDetailAPIView(APIView):
                 visibility='withdrawn', withdrawn_at=timezone.now()
             )
         elif action == 'change_consent':
-            if question.owner_id != request.user.id or question.status in ('answered', 'withdrawn'):
+            if question.status in ('answered', 'withdrawn'):
                 return Response({'detail': 'Consent cannot be changed at this stage.'}, status=403)
+            self.require_object_permission(request, question, IsQuestionOwner)
             question.is_public = data.get('is_public', False)
             if question.is_public:
                 question.public_title = data.get('public_title', question.public_title or question.original_title).strip()
@@ -392,6 +458,7 @@ class QuestionDetailAPIView(APIView):
                 question.public_body = ''
             question.save(update_fields=('is_public', 'public_title', 'public_body', 'updated_at'))
         elif action == 'clarify':
+            self.require_object_permission(request, question, IsClarificationParticipant)
             body = data.get('body', '').strip()
             if not body:
                 return Response({'detail': 'A clarification message is required.'}, status=400)
@@ -556,29 +623,23 @@ class NotificationListAPIView(APIView):
 
 
 class ScholarAssignmentListAPIView(APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsVerifiedScholar,)
 
     def get_queryset(self, user):
-        if not can_author(user):
-            return Question.objects.none()
         return Question.objects.filter(
             assigned_scholar=user,
             status__in=('assigned', 'in_progress', 'needs_clarification'),
         ).select_related('category').prefetch_related('clarifications')
 
     def get(self, request, *args, **kwargs):
-        if not can_author(request.user):
-            return Response({'detail': 'An approved, active scholar profile is required.'}, status=403)
         questions = self.get_queryset(request.user)
         return Response({'results': QuestionSerializer(questions, many=True, context={'request': request}).data})
 
 
 class AnswerCreateAPIView(APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsVerifiedScholar, IsAssignedScholar)
 
     def post(self, request, *args, **kwargs):
-        if not can_author(request.user):
-            return Response({'detail': 'An approved, active scholar profile is required.'}, status=403)
         serializer = AnswerActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -587,6 +648,7 @@ class AnswerCreateAPIView(APIView):
         ).first()
         if question is None:
             return Response({'detail': 'Assignment not found.'}, status=404)
+        self.check_object_permissions(request, question)
         if data.get('methodology_id') and not Methodology.objects.filter(
             pk=data['methodology_id'], is_active=True
         ).exists():
@@ -642,7 +704,7 @@ class AnswerCreateAPIView(APIView):
 
 
 class ReviewQueueAPIView(APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsVerifiedScholar,)
 
     def get_queryset(self, user):
         return AnswerRevision.objects.filter(
@@ -651,8 +713,6 @@ class ReviewQueueAPIView(APIView):
         ).select_related('answer__question__category', 'created_by')
 
     def get(self, request, *args, **kwargs):
-        if not can_author(request.user):
-            return Response({'detail': 'An approved, active scholar profile is required.'}, status=403)
         results = []
         for revision in self.get_queryset(request.user):
             results.append({
@@ -667,13 +727,11 @@ class ReviewQueueAPIView(APIView):
 
 
 class ReviewActionAPIView(APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsVerifiedScholar, IsAssignedReviewer)
 
     def post(self, request, revision_id, action):
         if action not in ('approve', 'request-changes', 'reject'):
             return Response({'detail': 'Unknown review action.'}, status=400)
-        if not can_author(request.user):
-            return Response({'detail': 'An approved, active scholar profile is required.'}, status=403)
         serializer = ReviewActionSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         feedback = serializer.validated_data.get('feedback', '').strip()
@@ -687,9 +745,13 @@ class ReviewActionAPIView(APIView):
         with transaction.atomic():
             revision = AnswerRevision.objects.select_for_update().select_related(
                 'answer__question', 'created_by'
-            ).filter(pk=revision_id).first()
-            if revision is None or revision.answer.question.assigned_reviewer_id != request.user.id:
+            ).filter(
+                pk=revision_id,
+                answer__question__assigned_reviewer=request.user,
+            ).first()
+            if revision is None:
                 return Response({'detail': 'Review assignment not found.'}, status=404)
+            self.check_object_permissions(request, revision)
             if revision.created_by_id == request.user.id:
                 return Response({'detail': 'A reviewer cannot approve their own answer.'}, status=403)
             if revision.status != 'in_review':
@@ -739,17 +801,15 @@ class ReviewActionAPIView(APIView):
 
 
 class AssignQuestionAPIView(APIView):
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (IsModerator,)
 
     def post(self, request, *args, **kwargs):
-        if not can_moderate(request.user):
-            return Response({'detail': 'Moderator permission is required.'}, status=403)
         serializer = AssignmentSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
         scholar = User.objects.filter(pk=data['scholar_id']).first()
         reviewer = User.objects.filter(pk=data['reviewer_id']).first()
-        if not scholar or not reviewer or scholar == reviewer or not can_author(scholar) or not can_author(reviewer):
+        if not scholar or not reviewer or scholar == reviewer or not is_verified_scholar(scholar) or not is_verified_scholar(reviewer):
             return Response({'detail': 'Select two different approved, active scholars.'}, status=400)
         with transaction.atomic():
             question = Question.objects.select_for_update().filter(
@@ -772,3 +832,83 @@ class AssignQuestionAPIView(APIView):
             notify(scholar, 'question_assigned', 'A question has been assigned to you', f'/scholar/questions/{question.id}/')
             notify(reviewer, 'review_assigned', 'A review has been assigned to you', '/reviews/')
         return Response({'question': QuestionSerializer(question, context={'request': request}).data})
+
+
+class ScholarModerationListAPIView(APIView):
+    permission_classes = (IsModerator,)
+
+    def get(self, request, *args, **kwargs):
+        queryset = ScholarProfile.objects.select_related(
+            'user', 'user__userprofile', 'verified_by'
+        ).order_by('verification_status', 'user__username')
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            if status_filter not in {'pending', 'approved', 'rejected'}:
+                return Response({'detail': 'Unknown scholar status.'}, status=400)
+            queryset = queryset.filter(verification_status=status_filter)
+        return Response({
+            'results': ScholarModerationSerializer(queryset, many=True).data,
+        })
+
+
+class ScholarModerationActionAPIView(APIView):
+    permission_classes = (IsModerator,)
+
+    def patch(self, request, user_id, *args, **kwargs):
+        serializer = ScholarModerationActionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        action = serializer.validated_data['action']
+        note = serializer.validated_data.get('note', '').strip()
+
+        with transaction.atomic():
+            scholar = ScholarProfile.objects.select_for_update().select_related(
+                'user', 'user__userprofile'
+            ).filter(user_id=user_id).first()
+            if scholar is None:
+                return Response({'detail': 'Scholar profile not found.'}, status=404)
+
+            if action == 'approve':
+                scholar.verification_status = 'approved'
+                scholar.verification_note = note
+                scholar.verified_by = request.user
+                scholar.verified_at = timezone.now()
+                scholar.is_suspended = False
+            elif action == 'reject':
+                scholar.verification_status = 'rejected'
+                scholar.verification_note = note
+                scholar.verified_by = request.user
+                scholar.verified_at = timezone.now()
+            elif action == 'suspend':
+                scholar.is_suspended = True
+                scholar.verification_note = note
+            else:
+                scholar.is_suspended = False
+                scholar.verification_note = ''
+
+            scholar.save(update_fields=(
+                'verification_status', 'verification_note', 'verified_by',
+                'verified_at', 'is_suspended', 'updated_at',
+            ))
+            AuditEvent.objects.create(
+                actor=request.user,
+                event_type=f'scholar_profile_{action}',
+                object_type='scholar_profile',
+                object_id=str(scholar.pk),
+                metadata={'user_id': scholar.user_id, 'note': note},
+            )
+
+        return Response({'scholar': ScholarModerationSerializer(scholar).data})
+
+
+class ModerationQuestionListAPIView(APIView):
+    permission_classes = (IsModerator,)
+
+    def get(self, request, *args, **kwargs):
+        questions = Question.objects.filter(
+            status__in=('submitted', 'rejected'),
+        ).select_related('owner__userprofile', 'category').order_by(
+            'submitted_at', 'created_at'
+        )
+        return Response({
+            'results': ModerationQuestionSerializer(questions, many=True).data,
+        })

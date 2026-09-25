@@ -60,12 +60,28 @@ export function FatwaActions({ publicationId, locale }: { publicationId: number;
     }
   }
 
+  async function share() {
+    const shareData = { title: document.title, url: window.location.href };
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else {
+        await navigator.clipboard.writeText(window.location.href);
+        setNotice(isBangla ? 'লিংক কপি করা হয়েছে।' : 'Link copied to your clipboard.');
+      }
+    } catch {
+      // Closing the native share sheet is not an error the reader needs to see.
+    }
+  }
+
   if (!signedIn) {
-    return <div className="detail-actions"><Link className="button button-ghost" href={`/${locale}/auth`}>{isBangla ? 'সংরক্ষণ করতে লগইন করুন' : 'Sign in to save'}</Link></div>;
+    return <div className="detail-actions"><Link className="button button-ghost" href={`/${locale}/auth`}>{isBangla ? 'সংরক্ষণ করতে লগইন করুন' : 'Sign in to save'}</Link><button className="text-button" type="button" onClick={share}>{isBangla ? 'শেয়ার' : 'Share'}</button><button className="text-button" type="button" onClick={() => window.print()}>{isBangla ? 'প্রিন্ট' : 'Print'}</button>{notice ? <span className="action-notice" role="status">{notice}</span> : null}</div>;
   }
 
   return <div className="detail-actions">
     <button className="button button-ghost" type="button" disabled={busy} onClick={toggleBookmark}>{bookmarked ? (isBangla ? '★ সংরক্ষিত' : '★ Saved') : (isBangla ? '☆ সংরক্ষণ' : '☆ Save')}</button>
+    <button className="text-button" type="button" onClick={share}>{isBangla ? 'শেয়ার' : 'Share'}</button>
+    <button className="text-button" type="button" onClick={() => window.print()}>{isBangla ? 'প্রিন্ট' : 'Print'}</button>
     <button className="text-button" type="button" onClick={report}>{isBangla ? 'রিপোর্ট' : 'Report an issue'}</button>
     {notice ? <span className="action-notice" role="status">{notice}</span> : null}
   </div>;

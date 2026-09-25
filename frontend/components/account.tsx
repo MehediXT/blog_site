@@ -11,6 +11,7 @@ import {
   Question,
   User,
   clearAuth,
+  clarifyQuestion,
   createQuestion,
   getBookmarks,
   getCurrentUser,
@@ -21,6 +22,8 @@ import {
   register,
   savedUser,
   submitQuestion,
+  updateCurrentUser,
+  withdrawQuestion,
 } from '../lib/api';
 
 type Locale = 'bn' | 'en';
@@ -38,13 +41,16 @@ export function AuthNav({ locale }: { locale: Locale }) {
   const [user, setUser] = useState<User | null>(null);
 
   useEffect(() => {
-    setUser(savedUser());
+    const cachedUser = savedUser();
+    setUser(cachedUser);
+    if (cachedUser) getCurrentUser().then(setUser).catch(() => undefined);
   }, []);
 
   return user ? (
     <>
       <Link className="nav-link nav-ask" href={`/${locale}/ask`}>{locale === 'bn' ? 'প্রশ্ন করুন' : 'Ask a question'}</Link>
       {user.scholar ? <Link className="nav-link nav-scholar" href={`/${locale}/scholar`}>{locale === 'bn' ? 'স্কলার প্যানেল' : 'Scholar panel'}</Link> : null}
+      {user.moderator ? <Link className="nav-link nav-moderation" href={`/${locale}/moderation`}>{locale === 'bn' ? 'মডারেশন' : 'Moderation'}</Link> : null}
       <Link className="account-chip" href={`/${locale}/account`} aria-label="Open your account">
         <span className="avatar">{(user.display_name || user.username).slice(0, 1).toUpperCase()}</span>
         <span>{user.display_name || user.username}</span>
@@ -86,6 +92,7 @@ export function AuthPanel({ locale }: { locale: Locale }) {
 
   return (
     <div className="auth-layout">
+      <Link className="auth-home" href={`/${locale}`}>← {isBangla ? 'প্রচ্ছদে ফিরুন' : 'Back to home'}</Link>
       <section className="auth-intro">
         <span className="eyebrow">{isBangla ? 'আপনার জ্ঞানের যাত্রা' : 'Your space for reflection'}</span>
         <h1>{isBangla ? 'প্রশ্ন করুন। বুঝুন। এগিয়ে চলুন।' : 'Ask with confidence. Learn with care.'}</h1>
@@ -150,6 +157,61 @@ function statusLabel(status: string, locale: Locale) {
   return labels[status]?.[locale === 'bn' ? 1 : 0] || status;
 }
 
+function QuestionItem({ question, locale, onUpdate }: { question: Question; locale: Locale; onUpdate: (question: Question) => void }) {
+  const isBangla = locale === 'bn';
+  const [reply, setReply] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+
+  async function sendClarification(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!reply.trim()) return;
+    setBusy(true);
+    setError('');
+    try {
+      const updated = await clarifyQuestion(question.id, reply.trim());
+      onUpdate(updated);
+      setReply('');
+      setNotice(isBangla ? 'আপনার উত্তর পাঠানো হয়েছে।' : 'Your clarification was sent.');
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function withdraw() {
+    const confirmed = window.confirm(isBangla ? 'আপনি কি প্রশ্নটি প্রত্যাহার করতে চান?' : 'Withdraw this question?');
+    if (!confirmed) return;
+    setBusy(true);
+    setError('');
+    try {
+      onUpdate(await withdrawQuestion(question.id));
+      setNotice(isBangla ? 'প্রশ্নটি প্রত্যাহার করা হয়েছে।' : 'The question was withdrawn.');
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="question-item">
+      <summary className="question-row">
+        <div><span className="question-number">#{String(question.id).padStart(3, '0')}</span><h3>{question.original_title}</h3><p>{question.original_body}</p></div>
+        <div className="question-row-meta"><span className={`status status-${question.status}`}>{statusLabel(question.status, locale)}</span><time>{new Date(question.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</time><span className="question-expand" aria-hidden="true">+</span></div>
+      </summary>
+      <div className="question-detail-panel">
+        <div className="question-detail-copy"><p className="section-kicker">{isBangla ? 'সম্পূর্ণ প্রশ্ন' : 'Full question'}</p><p>{question.original_body}</p><div className="question-flags"><span>{question.language === 'bn' ? 'বাংলা' : 'English'}</span><span>{question.is_public ? (isBangla ? 'বেনামে প্রকাশের অনুমতি' : 'Public consent given') : (isBangla ? 'ব্যক্তিগত' : 'Private')}</span></div></div>
+        {question.clarifications.length ? <div className="clarification-thread"><p className="section-kicker">{isBangla ? 'ব্যাখ্যা ও উত্তর' : 'Clarifications'}</p>{question.clarifications.map((item) => <div key={item.id}><p>{item.body}</p><time>{new Date(item.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')}</time></div>)}</div> : null}
+        {question.status !== 'answered' && question.status !== 'withdrawn' ? <form className="clarification-form" onSubmit={sendClarification}><label><span>{isBangla ? 'আরও তথ্য যোগ করুন' : 'Add more context'}</span><textarea value={reply} onChange={(event) => setReply(event.target.value)} rows={3} placeholder={isBangla ? 'প্রয়োজনীয় ব্যাখ্যা লিখুন…' : 'Write a clarification for the assigned team…'} /></label><div><button className="button button-small" type="submit" disabled={busy || !reply.trim()}>{isBangla ? 'পাঠান' : 'Send'}</button><button className="text-button danger-link" type="button" onClick={withdraw} disabled={busy}>{isBangla ? 'প্রত্যাহার' : 'Withdraw'}</button></div></form> : null}
+        {error ? <p className="form-error" role="alert">{error}</p> : null}{notice ? <p className="form-success" role="status">{notice}</p> : null}
+      </div>
+    </details>
+  );
+}
+
 export function AccountPanel({ locale }: { locale: Locale }) {
   const router = useRouter();
   const [user, setUser] = useState<User | null>(null);
@@ -158,6 +220,10 @@ export function AccountPanel({ locale }: { locale: Locale }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [displayName, setDisplayName] = useState('');
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileNotice, setProfileNotice] = useState('');
   const isBangla = locale === 'bn';
 
   useEffect(() => {
@@ -165,6 +231,7 @@ export function AccountPanel({ locale }: { locale: Locale }) {
     Promise.all([getCurrentUser(), getMyQuestions(), getBookmarks(), getNotifications()]).then(([profile, ownQuestions, bookmarkData, notificationData]) => {
       if (!active) return;
       setUser(profile);
+      setDisplayName(profile.display_name || '');
       setQuestions(ownQuestions);
       setBookmarks(bookmarkData.results.map((item) => item.fatwa));
       setNotifications(notificationData.results);
@@ -184,6 +251,25 @@ export function AccountPanel({ locale }: { locale: Locale }) {
     router.refresh();
   }
 
+  async function saveProfile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setProfileBusy(true);
+    setProfileNotice('');
+    try {
+      const updated = await updateCurrentUser({ display_name: displayName.trim(), preferred_language: locale });
+      setUser(updated);
+      setProfileNotice(isBangla ? 'প্রোফাইল সংরক্ষিত হয়েছে।' : 'Profile saved.');
+    } catch (caught) {
+      setProfileNotice(errorMessage(caught));
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  function updateQuestion(updated: Question) {
+    setQuestions((items) => items.map((item) => item.id === updated.id ? updated : item));
+  }
+
   if (loading) return <div className="loading-card">{isBangla ? 'আপনার অ্যাকাউন্ট লোড হচ্ছে…' : 'Loading your account…'}</div>;
   if (error || !user) return <div className="empty-state"><p>{error || (isBangla ? 'অ্যাকাউন্ট পাওয়া যায়নি।' : 'Your account could not be loaded.')}</p><Link className="button" href={`/${locale}/auth`}>{isBangla ? 'লগইন' : 'Log in'}</Link></div>;
 
@@ -195,8 +281,10 @@ export function AccountPanel({ locale }: { locale: Locale }) {
           <h1>{isBangla ? `স্বাগতম, ${user.display_name || user.username}` : `Welcome, ${user.display_name || user.username}`}</h1>
           <p>{isBangla ? 'আপনার প্রশ্ন, তাদের অগ্রগতি এবং আপনার গোপনীয়তা—সব এক জায়গায়।' : 'Your questions, their progress, and your privacy — all in one place.'}</p>
         </div>
-        <div className="account-actions"><Link className="button" href={`/${locale}/ask`}>{isBangla ? '+ প্রশ্ন করুন' : '+ Ask a question'}</Link><button className="button button-ghost" type="button" onClick={handleLogout}>{isBangla ? 'লগআউট' : 'Log out'}</button></div>
+        <div className="account-actions"><Link className="button" href={`/${locale}/ask`}>{isBangla ? '+ প্রশ্ন করুন' : '+ Ask a question'}</Link><Link className="button button-ghost" href={`/${locale}/scholar/apply`}>{isBangla ? 'স্কলার প্রোফাইল' : 'Scholar profile'}</Link><button className="button button-ghost" type="button" onClick={() => setProfileOpen((value) => !value)}>{isBangla ? 'প্রোফাইল' : 'Profile'}</button><button className="text-button" type="button" onClick={handleLogout}>{isBangla ? 'লগআউট' : 'Log out'}</button></div>
       </div>
+
+      {profileOpen ? <form className="profile-editor" onSubmit={saveProfile}><div><p className="section-kicker">{isBangla ? 'অ্যাকাউন্ট সেটিংস' : 'Account settings'}</p><h2>{isBangla ? 'আপনার পরিচিতি' : 'Your profile'}</h2></div><label><span>{isBangla ? 'প্রদর্শিত নাম' : 'Display name'}</span><input maxLength={150} value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder={user.username} /></label><label><span>{isBangla ? 'ইন্টারফেস ভাষা' : 'Interface language'}</span><select value={locale} disabled><option value={locale}>{isBangla ? 'বাংলা' : 'English'}</option></select></label><button className="button button-small" type="submit" disabled={profileBusy}>{profileBusy ? (isBangla ? 'সংরক্ষণ…' : 'Saving…') : (isBangla ? 'সংরক্ষণ করুন' : 'Save profile')}</button>{profileNotice ? <p className="form-success" role="status">{profileNotice}</p> : null}</form> : null}
 
       <div className="account-stats">
         <div><strong>{questions.length}</strong><span>{isBangla ? 'মোট প্রশ্ন' : 'Total questions'}</span></div>
@@ -206,7 +294,7 @@ export function AccountPanel({ locale }: { locale: Locale }) {
 
       <section className="question-list-section">
         <div className="section-heading"><div><p className="section-kicker">{isBangla ? 'আপনার প্রশ্ন' : 'Your questions'}</p><h2>{isBangla ? 'যাত্রার অগ্রগতি' : 'Follow your journey'}</h2></div></div>
-        {questions.length ? <div className="question-list">{questions.map((question) => <article className="question-row" key={question.id}><div><span className="question-number">#{String(question.id).padStart(3, '0')}</span><h3>{question.original_title}</h3><p>{question.original_body}</p></div><div className="question-row-meta"><span className={`status status-${question.status}`}>{statusLabel(question.status, locale)}</span><time>{new Date(question.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</time></div></article>)}</div> : <div className="empty-state"><p>{isBangla ? 'এখনও কোনো প্রশ্ন করা হয়নি।' : 'You have not asked a question yet.'}</p><Link className="button" href={`/${locale}/ask`}>{isBangla ? 'প্রথম প্রশ্ন করুন' : 'Ask your first question'}</Link></div>}
+        {questions.length ? <div className="question-list">{questions.map((question) => <QuestionItem key={question.id} question={question} locale={locale} onUpdate={updateQuestion} />)}</div> : <div className="empty-state"><p>{isBangla ? 'এখনও কোনো প্রশ্ন করা হয়নি।' : 'You have not asked a question yet.'}</p><Link className="button" href={`/${locale}/ask`}>{isBangla ? 'প্রথম প্রশ্ন করুন' : 'Ask your first question'}</Link></div>}
       </section>
       <section className="account-secondary-grid">
         <div className="secondary-card"><p className="section-kicker">{isBangla ? 'সংরক্ষিত' : 'Saved for later'}</p><h2>{isBangla ? 'বুকমার্ক' : 'Bookmarks'}</h2>{bookmarks.length ? <ul className="compact-list">{bookmarks.map((fatwa) => <li key={fatwa.id}><Link href={`/${locale}/fatwas/${fatwa.id}`}>{fatwa.title}</Link></li>)}</ul> : <p className="muted-copy">{isBangla ? 'এখনও কিছু সংরক্ষণ করা হয়নি।' : 'You have not saved any fatwas yet.'}</p>}</div>

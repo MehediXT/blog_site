@@ -1,3 +1,4 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Footer, Header } from '../../../../components/site';
@@ -7,7 +8,25 @@ function listValue(value: string[] | string | undefined) {
   return Array.isArray(value) ? value.join(' · ') : value || '';
 }
 
-export default async function ScholarDetailPage({ params }: { params: Promise<{ locale: string; id: string }> }) {
+type Props = { params: Promise<{ locale: string; id: string }> };
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { locale: rawLocale, id } = await params;
+  if (!isLocale(rawLocale)) return {};
+  const data = await getJsonScholar(id);
+  if (!data?.scholar) return {};
+  const scholar = data.scholar;
+  const description = scholar.biography?.replace(/\s+/g, ' ').slice(0, 160) || `${scholar.name} — verified scholar at Universe of Ilm.`;
+  return {
+    title: scholar.name,
+    description,
+    alternates: { canonical: `/${rawLocale}/scholars/${id}` },
+    openGraph: { title: scholar.name, description, images: [] },
+    twitter: { card: 'summary', title: scholar.name, description, images: [] },
+  };
+}
+
+export default async function ScholarDetailPage({ params }: Props) {
   const { locale: rawLocale, id } = await params;
   if (!isLocale(rawLocale)) notFound();
   const locale: Locale = rawLocale;

@@ -7,6 +7,7 @@ from accounts.models import ScholarProfile, UserProfile
 from fatwas.models import Bookmark, Category, Methodology, Publication, Report
 from notifications.models import Notification
 from questions.models import ClarificationMessage, Question
+from .permissions import is_moderator
 
 
 User = get_user_model()
@@ -45,7 +46,9 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def create(self, validated_data):
-        return User.objects.create_user(**validated_data)
+        password = validated_data.pop('password')
+        # Django's create_user() calls set_password() before writing the user.
+        return User.objects.create_user(password=password, **validated_data)
 
 
 class MeSerializer(serializers.Serializer):
@@ -56,6 +59,7 @@ class MeSerializer(serializers.Serializer):
     preferred_language = serializers.ChoiceField(choices=('bn', 'en'), required=False)
     display_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
     scholar = serializers.BooleanField(read_only=True)
+    moderator = serializers.BooleanField(read_only=True)
 
     def to_representation(self, user):
         profile, _ = UserProfile.objects.get_or_create(user=user)
@@ -68,6 +72,7 @@ class MeSerializer(serializers.Serializer):
             'preferred_language': profile.preferred_language,
             'display_name': profile.display_name,
             'scholar': bool(scholar and scholar.can_author),
+            'moderator': is_moderator(user),
         }
 
     def update(self, user, validated_data):
@@ -186,6 +191,97 @@ class ScholarDetailSerializer(ScholarSerializer):
 
     class Meta(ScholarSerializer.Meta):
         fields = ScholarSerializer.Meta.fields + ('biography', 'qualifications')
+
+
+class ScholarApplicationSerializer(serializers.ModelSerializer):
+    languages = serializers.ListField(
+        source='supported_languages',
+        child=serializers.ChoiceField(choices=('bn', 'en')),
+        min_length=1,
+    )
+    specialties = serializers.ListField(
+        child=serializers.CharField(max_length=120, trim_whitespace=True),
+        min_length=1,
+    )
+    can_author = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = ScholarProfile
+        fields = (
+            'institution', 'biography', 'public_bio', 'qualifications',
+            'specialties', 'languages', 'verification_status',
+            'is_suspended', 'can_author', 'created_at', 'updated_at',
+        )
+        read_only_fields = (
+            'verification_status', 'is_suspended', 'can_author',
+            'created_at', 'updated_at',
+        )
+        extra_kwargs = {
+            'institution': {'required': True, 'allow_blank': False},
+            'biography': {'required': True, 'allow_blank': False},
+            'public_bio': {'required': True, 'allow_blank': False},
+            'qualifications': {'required': True, 'allow_blank': False},
+        }
+
+    def validate_specialties(self, value):
+        cleaned = list(dict.fromkeys(item.strip() for item in value if item.strip()))
+        if not cleaned:
+            raise serializers.ValidationError('Add at least one specialty.')
+        return cleaned
+
+    def validate_languages(self, value):
+        return list(dict.fromkeys(value))
+
+
+class ScholarModerationSerializer(serializers.ModelSerializer):
+    user_id = serializers.IntegerField(read_only=True)
+    username = serializers.CharField(source='user.username', read_only=True)
+    email = serializers.EmailField(source='user.email', read_only=True)
+    display_name = serializers.SerializerMethodField()
+    languages = serializers.ListField(source='supported_languages', read_only=True)
+
+    class Meta:
+        model = ScholarProfile
+        fields = (
+            'user_id', 'username', 'email', 'display_name', 'institution',
+            'qualifications', 'specialties', 'languages', 'biography',
+            'public_bio', 'verification_status', 'verification_note',
+            'verified_at', 'is_suspended', 'created_at', 'updated_at',
+        )
+
+    def get_display_name(self, scholar):
+        profile = getattr(scholar.user, 'userprofile', None)
+        return (profile.display_name if profile else '') or scholar.user.username
+
+
+class ScholarModerationActionSerializer(serializers.Serializer):
+    action = serializers.ChoiceField(choices=('approve', 'reject', 'suspend', 'unsuspend'))
+    note = serializers.CharField(required=False, allow_blank=True, max_length=2000)
+
+    def validate(self, attrs):
+        if attrs['action'] in ('reject', 'suspend') and not attrs.get('note', '').strip():
+            raise serializers.ValidationError({'note': 'Add a note for this decision.'})
+        return attrs
+
+
+class ModerationQuestionSerializer(serializers.ModelSerializer):
+    asker_name = serializers.SerializerMethodField()
+    category_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Question
+        fields = (
+            'id', 'status', 'language', 'original_title', 'original_body',
+            'category_name', 'madhhab_preference', 'created_at', 'submitted_at',
+            'asker_name', 'assigned_scholar_id', 'assigned_reviewer_id',
+        )
+
+    def get_asker_name(self, question):
+        profile = getattr(question.owner, 'userprofile', None)
+        return (profile.display_name if profile else '') or question.owner.username
+
+    def get_category_name(self, question):
+        return question.category.name_en if question.category_id else ''
 
 
 class ReportSerializer(serializers.ModelSerializer):

@@ -10,6 +10,7 @@ from .views import (
     LoginAPIView,
     LogoutAPIView,
     MeAPIView,
+    ModerationQuestionListAPIView,
     MethodologyListAPIView,
     NotificationListAPIView,
     PublicFatwaDetailAPIView,
@@ -20,9 +21,12 @@ from .views import (
     ReportCreateAPIView,
     ReviewActionAPIView,
     ReviewQueueAPIView,
+    ScholarApplicationAPIView,
     ScholarAssignmentListAPIView,
     ScholarDetailAPIView,
     ScholarListAPIView,
+    ScholarModerationActionAPIView,
+    ScholarModerationListAPIView,
     VerifyEmailAPIView,
 )
 
@@ -36,6 +40,7 @@ urlpatterns = [
     path('auth/logout/', LogoutAPIView.as_view(), name='api-logout'),
     path('auth/verify-email/<str:token>/', VerifyEmailAPIView.as_view(), name='api-verify-email'),
     path('me/', MeAPIView.as_view(), name='api-me'),
+    path('me/scholar-profile/', ScholarApplicationAPIView.as_view(), name='api-scholar-application'),
     path('me/questions/', QuestionListCreateAPIView.as_view(), name='api-questions'),
     path('me/questions/<int:pk>/', QuestionDetailAPIView.as_view(), name='api-question-detail'),
     path('me/bookmarks/', BookmarkListCreateAPIView.as_view(), name='api-bookmarks'),
@@ -51,5 +56,8 @@ urlpatterns = [
     path('scholar/questions/<int:question_id>/answer/', AnswerCreateAPIView.as_view(), name='api-answer'),
     path('reviews/', ReviewQueueAPIView.as_view(), name='api-review-queue'),
     path('reviews/<int:revision_id>/<str:action>/', ReviewActionAPIView.as_view(), name='api-review-action'),
+    path('moderation/scholars/', ScholarModerationListAPIView.as_view(), name='api-moderation-scholars'),
+    path('moderation/scholars/<int:user_id>/', ScholarModerationActionAPIView.as_view(), name='api-moderation-scholar-action'),
+    path('moderation/questions/', ModerationQuestionListAPIView.as_view(), name='api-moderation-questions'),
     path('moderation/questions/<int:question_id>/assign/', AssignQuestionAPIView.as_view(), name='api-assign-question'),
 ]

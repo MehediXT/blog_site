@@ -22,6 +22,10 @@ export default async function ScholarsPage({ params }: { params: Promise<{ local
         <p className="section-kicker">{isBangla ? 'আলেমদের পরিচিতি' : 'Our scholars'}</p>
         <h1>{isBangla ? 'যাঁরা জ্ঞানের যত্ন নেন' : 'The people behind the answers'}</h1>
         <p>{isBangla ? 'অনুমোদিত আলেমদের অভিজ্ঞতা, বিষয় ও ভাষা সম্পর্কে জানুন।' : 'Meet the verified scholars who contribute careful, reviewed guidance.'}</p>
+        <div className="scholar-directory-actions">
+          <Link className="button" href={`/${locale}/scholar/apply`}>{isBangla ? 'স্কলার প্রোফাইল তৈরি করুন' : 'Create a scholar profile'}</Link>
+          <span>{isBangla ? 'যোগ্যতা যাচাইয়ের জন্য জমা দিন; অনুমোদনের পর প্রোফাইল এখানে দেখা যাবে।' : 'Submit your credentials for verification; approved profiles appear here.'}</span>
+        </div>
       </div>
       {scholars.length ? <div className="scholar-directory">{scholars.map((scholar) => <article className="directory-card" key={scholar.id}>
         <div className="directory-avatar">{scholar.name.slice(0, 1)}</div>

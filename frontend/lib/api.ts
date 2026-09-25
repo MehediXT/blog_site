@@ -36,6 +36,7 @@ export type User = {
   preferred_language?: Locale;
   display_name?: string;
   scholar?: boolean;
+  moderator?: boolean;
 };
 
 export type Scholar = {
@@ -46,6 +47,54 @@ export type Scholar = {
   languages: string[] | string;
   biography?: string;
   qualifications?: string[] | string;
+};
+
+export type ScholarApplication = {
+  institution: string;
+  biography: string;
+  public_bio: string;
+  qualifications: string;
+  specialties: string[];
+  languages: Locale[];
+  verification_status: 'pending' | 'approved' | 'rejected';
+  is_suspended: boolean;
+  can_author: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ModerationScholar = {
+  user_id: number;
+  username: string;
+  email: string;
+  display_name: string;
+  institution: string;
+  qualifications: string;
+  specialties: string[];
+  languages: Locale[];
+  biography: string;
+  public_bio: string;
+  verification_status: 'pending' | 'approved' | 'rejected';
+  verification_note: string;
+  verified_at: string | null;
+  is_suspended: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ModerationQuestion = {
+  id: number;
+  status: string;
+  language: string;
+  original_title: string;
+  original_body: string;
+  category_name: string;
+  madhhab_preference: string;
+  created_at: string;
+  submitted_at: string | null;
+  asker_name: string;
+  assigned_scholar_id: number | null;
+  assigned_reviewer_id: number | null;
 };
 
 export type Notification = {
@@ -245,6 +294,33 @@ export async function getCurrentUser() {
   return response;
 }
 
+export async function getScholarApplication() {
+  return clientRequest<{ scholar_profile: ScholarApplication | null }>('/me/scholar-profile/');
+}
+
+export async function submitScholarApplication(payload: {
+  institution: string;
+  biography: string;
+  public_bio: string;
+  qualifications: string;
+  specialties: string[];
+  languages: Locale[];
+}) {
+  return clientRequest<{ scholar_profile: ScholarApplication }>('/me/scholar-profile/', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateCurrentUser(payload: { display_name?: string; preferred_language?: Locale }) {
+  const response = await clientRequest<User>('/me/', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+  window.localStorage.setItem('universe_user', JSON.stringify(response));
+  return response;
+}
+
 export async function getMyQuestions() {
   const response = await clientRequest<Question[] | { results: Question[] }>('/me/questions/');
   return Array.isArray(response) ? response : response.results;
@@ -279,6 +355,28 @@ export async function getReviewQueue() {
 
 export async function getScholars() {
   return getJson<{ results: Scholar[] }>('/scholars/');
+}
+
+export async function getModerationScholars() {
+  return clientRequest<{ results: ModerationScholar[] }>('/moderation/scholars/');
+}
+
+export async function moderateScholar(userId: number, action: 'approve' | 'reject' | 'suspend' | 'unsuspend', note = '') {
+  return clientRequest<{ scholar: ModerationScholar }>(`/moderation/scholars/${userId}/`, {
+    method: 'PATCH',
+    body: JSON.stringify({ action, note }),
+  });
+}
+
+export async function getModerationQuestions() {
+  return clientRequest<{ results: ModerationQuestion[] }>('/moderation/questions/');
+}
+
+export async function assignModerationQuestion(questionId: number, scholarId: number, reviewerId: number) {
+  return clientRequest<{ question: Question }>(`/moderation/questions/${questionId}/assign/`, {
+    method: 'POST',
+    body: JSON.stringify({ scholar_id: scholarId, reviewer_id: reviewerId }),
+  });
 }
 
 export async function getJsonScholar(id: string) {
@@ -346,6 +444,22 @@ export async function submitQuestion(id: number, payload: {
   return response.question;
 }
 
+export async function clarifyQuestion(id: number, body: string) {
+  const response = await clientRequest<{ question: Question }>(`/me/questions/${id}/`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'clarify', body }),
+  });
+  return response.question;
+}
+
+export async function withdrawQuestion(id: number) {
+  const response = await clientRequest<{ question: Question }>(`/me/questions/${id}/`, {
+    method: 'POST',
+    body: JSON.stringify({ action: 'withdraw' }),
+  });
+  return response.question;
+}
+
 export async function logout() {
   const refresh = storedRefreshToken();
   if (refresh) {
@@ -362,8 +476,16 @@ export function isLocale(value: string): value is Locale {
   return value === 'bn' || value === 'en';
 }
 
-export async function getFatwas(locale: Locale, query = '', category = '', methodology = '', scholar = '') {
-  const params = new URLSearchParams({ page_size: '6', language: locale });
+export async function getFatwas(
+  locale: Locale,
+  query = '',
+  category = '',
+  methodology = '',
+  scholar = '',
+  pageSize = 6,
+  page = 1,
+) {
+  const params = new URLSearchParams({ page_size: String(pageSize), page: String(page), language: locale });
   if (query) params.set('q', query);
   if (category) params.set('category', category);
   if (methodology) params.set('methodology', methodology);
