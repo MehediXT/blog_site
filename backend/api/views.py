@@ -27,7 +27,6 @@ from rest_framework_simplejwt.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
-
 from accounts.models import EmailVerificationToken, ScholarProfile, UserProfile
 from .serializers import (
     AnswerActionSerializer,

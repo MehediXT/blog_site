@@ -1,10 +1,7 @@
-"""Reusable role and object access rules for the public API."""
-
 from rest_framework.permissions import BasePermission
 
 
 def is_verified_scholar(user):
-    """Only approved, active scholar profiles can author or review answers."""
     if not user or not user.is_authenticated:
         return False
     try:
@@ -14,7 +11,6 @@ def is_verified_scholar(user):
 
 
 def is_moderator(user):
-    """Staff and members of the moderator or administrator groups can moderate."""
     return bool(
         user
         and user.is_authenticated
@@ -26,7 +22,6 @@ def is_moderator(user):
 
 
 def question_for_object(obj):
-    """Resolve a question from a question, clarification, or answer revision."""
     if obj is None:
         return None
     if hasattr(obj, 'assigned_scholar_id') and hasattr(obj, 'assigned_reviewer_id'):
@@ -41,7 +36,6 @@ def question_for_object(obj):
 
 
 class IsVerifiedScholar(BasePermission):
-    """Allow answer authoring and review only for approved, unsuspended scholars."""
 
     message = 'An approved, active scholar profile is required.'
 
@@ -50,7 +44,6 @@ class IsVerifiedScholar(BasePermission):
 
 
 class IsModerator(BasePermission):
-    """Allow moderation endpoints to staff and moderator/administrator groups."""
 
     message = 'Moderator permission is required.'
 
@@ -59,7 +52,6 @@ class IsModerator(BasePermission):
 
 
 class IsQuestionParticipant(BasePermission):
-    """Allow the asker, assigned scholar/reviewer, or moderator to access a question."""
 
     message = 'You are not allowed to access this question.'
 
@@ -79,7 +71,6 @@ class IsQuestionParticipant(BasePermission):
 
 
 class IsQuestionOwner(BasePermission):
-    """Restrict question editing, submission, withdrawal, and consent to its asker."""
 
     message = 'Only the asker can perform this action.'
 
@@ -93,13 +84,10 @@ class IsQuestionOwner(BasePermission):
 
 
 class IsClarificationParticipant(IsQuestionParticipant):
-    """Clarifications are limited to the asker, assigned team, and moderators."""
-
     message = 'Only the asker, assigned team, or a moderator can add clarifications.'
 
 
 class IsAssignedScholar(BasePermission):
-    """Allow only the assigned scholar to create or update an answer draft."""
 
     message = 'This question is not assigned to you as the answering scholar.'
 
@@ -113,7 +101,6 @@ class IsAssignedScholar(BasePermission):
 
 
 class IsAssignedReviewer(BasePermission):
-    """Allow only the assigned reviewer to decide an answer revision."""
 
     message = 'This answer is not assigned to you for review.'
 
