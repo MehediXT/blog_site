@@ -118,6 +118,7 @@ class QuestionSerializer(serializers.ModelSerializer):
     clarifications = ClarificationSerializer(many=True, read_only=True)
     assigned_scholar_id = serializers.IntegerField(read_only=True)
     assigned_reviewer_id = serializers.IntegerField(read_only=True)
+    approved_answer = serializers.SerializerMethodField()
 
     class Meta:
         model = Question
@@ -126,7 +127,7 @@ class QuestionSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at', 'title', 'body',
             'original_title', 'original_body', 'public_title', 'public_body',
             'madhhab_preference', 'assigned_scholar_id', 'assigned_reviewer_id',
-            'clarifications',
+            'clarifications', 'approved_answer',
         )
         read_only_fields = (
             'id', 'status', 'created_at', 'updated_at', 'original_title',
@@ -136,6 +137,22 @@ class QuestionSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         return Question.objects.create(owner=self.context['request'].user, **validated_data)
+
+    def get_approved_answer(self, question):
+        if question.status not in ('answered', 'withdrawn'):
+            return None
+        try:
+            revision = question.answer.approved_revision
+        except AttributeError:
+            return None
+        if revision is None or revision.status != 'approved':
+            return None
+        return {
+            'body': revision.body,
+            'language': revision.language,
+            'references': revision.references,
+            'methodology': revision.methodology.slug if revision.methodology_id else None,
+        }
 
 
 class PublicFatwaSerializer(serializers.Serializer):
@@ -331,7 +348,9 @@ class BookmarkSerializer(serializers.ModelSerializer):
 class AnswerActionSerializer(serializers.Serializer):
     body = serializers.CharField()
     language = serializers.ChoiceField(choices=('bn', 'en'), required=False)
-    references = serializers.JSONField(required=False, default=list)
+    references = serializers.ListField(
+        child=serializers.CharField(max_length=1000), required=False, default=list,
+    )
     methodology_id = serializers.IntegerField(required=False, allow_null=True)
     action = serializers.ChoiceField(choices=('save', 'submit_for_review'), default='save')
 

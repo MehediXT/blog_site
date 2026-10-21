@@ -97,6 +97,16 @@ export type ModerationQuestion = {
   assigned_reviewer_id: number | null;
 };
 
+export type ModerationReport = {
+  id: number;
+  publication_id: number;
+  title: string;
+  reason: string;
+  reporter: string;
+  created_at: string;
+  visibility: string;
+};
+
 export type Notification = {
   id: number;
   kind: string;
@@ -125,6 +135,12 @@ export type Question = {
   assigned_scholar_id: number | null;
   assigned_reviewer_id: number | null;
   clarifications: Array<{ id: number; author_id: number; body: string; created_at: string }>;
+  approved_answer: {
+    body: string;
+    language: string;
+    references: string[];
+    methodology: string | null;
+  } | null;
 };
 
 export type ReviewItem = {
@@ -165,6 +181,11 @@ async function getJson<T>(path: string): Promise<T | null> {
   try {
     const response = await fetch(apiUrl(path), {
       cache: 'no-store',
+      // Django enforces HTTPS at the public edge. Server rendering uses the
+      // private Compose network, so mark this trusted internal hop as HTTPS.
+      headers: typeof window === 'undefined'
+        ? { 'X-Forwarded-Proto': 'https' }
+        : undefined,
     });
 
     if (!response.ok) return null;
@@ -294,6 +315,26 @@ export async function getCurrentUser() {
   return response;
 }
 
+export async function resendVerification() {
+  return clientRequest<{ verified: boolean; sent: boolean }>('/auth/resend-verification/', {
+    method: 'POST',
+  });
+}
+
+export async function requestPasswordReset(email: string) {
+  return clientRequest<{ detail: string }>('/auth/password-reset/', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function confirmPasswordReset(uid: string, token: string, password: string) {
+  return clientRequest<{ reset: boolean }>('/auth/password-reset/confirm/', {
+    method: 'POST',
+    body: JSON.stringify({ uid, token, password }),
+  });
+}
+
 export async function getScholarApplication() {
   return clientRequest<{ scholar_profile: ScholarApplication | null }>('/me/scholar-profile/');
 }
@@ -370,6 +411,17 @@ export async function moderateScholar(userId: number, action: 'approve' | 'rejec
 
 export async function getModerationQuestions() {
   return clientRequest<{ results: ModerationQuestion[] }>('/moderation/questions/');
+}
+
+export async function getModerationReports() {
+  return clientRequest<{ results: ModerationReport[] }>('/moderation/reports/');
+}
+
+export async function moderateReport(id: number, action: 'resolve' | 'dismiss' | 'withdraw', note = '') {
+  return clientRequest<{ id: number; status: string }>(`/moderation/reports/${id}/`, {
+    method: 'POST',
+    body: JSON.stringify({ action, note }),
+  });
 }
 
 export async function assignModerationQuestion(questionId: number, scholarId: number, reviewerId: number) {

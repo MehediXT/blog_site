@@ -2,3 +2,6 @@ node_modules/
 .next/
 *.tsbuildinfo
 .env*
+README.md
+CLAUDE.md
+AGENTS.md

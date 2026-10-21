@@ -5,8 +5,7 @@
     "dev": "next dev",
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start"
   },
   "dependencies": {
     "next": "16.3.4",

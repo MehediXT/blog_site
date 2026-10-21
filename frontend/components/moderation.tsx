@@ -5,18 +5,21 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   ApiFailure,
   ModerationQuestion,
+  ModerationReport,
   ModerationScholar,
   User,
   assignModerationQuestion,
   getCurrentUser,
   getModerationQuestions,
+  getModerationReports,
   getModerationScholars,
   moderateScholar,
+  moderateReport,
   savedUser,
 } from '../lib/api';
 
 type Locale = 'bn' | 'en';
-type Tab = 'applications' | 'assignments';
+type Tab = 'applications' | 'assignments' | 'reports';
 type ScholarFilter = 'pending' | 'approved' | 'rejected' | 'all';
 
 function messageFor(error: unknown) {
@@ -99,6 +102,7 @@ export function ModerationPanel({ locale }: { locale: Locale }) {
   const [user, setUser] = useState<User | null>(null);
   const [scholars, setScholars] = useState<ModerationScholar[]>([]);
   const [questions, setQuestions] = useState<ModerationQuestion[]>([]);
+  const [reports, setReports] = useState<ModerationReport[]>([]);
   const [tab, setTab] = useState<Tab>('applications');
   const [filter, setFilter] = useState<ScholarFilter>('pending');
   const [loading, setLoading] = useState(true);
@@ -110,12 +114,14 @@ export function ModerationPanel({ locale }: { locale: Locale }) {
     const currentUser = await getCurrentUser();
     setUser(currentUser);
     if (!currentUser.moderator) return;
-    const [scholarData, questionData] = await Promise.all([
+    const [scholarData, questionData, reportData] = await Promise.all([
       getModerationScholars(),
       getModerationQuestions(),
+      getModerationReports(),
     ]);
     setScholars(scholarData.results);
     setQuestions(questionData.results);
+    setReports(reportData.results);
   }
 
   useEffect(() => {
@@ -164,6 +170,22 @@ export function ModerationPanel({ locale }: { locale: Locale }) {
     setNotice(isBangla ? 'প্রশ্নটি দুইজন স্কলারের কাছে নির্ধারণ করা হয়েছে।' : 'Question assigned to the scholar and independent reviewer.');
   }
 
+  async function handleReport(report: ModerationReport, action: 'resolve' | 'dismiss' | 'withdraw') {
+    const note = action === 'withdraw'
+      ? window.prompt(isBangla ? 'প্রত্যাহারের কারণ লিখুন' : 'Reason for withdrawal')?.trim() || ''
+      : '';
+    if (action === 'withdraw' && !note) return;
+    setError('');
+    setNotice('');
+    try {
+      await moderateReport(report.id, action, note);
+      setReports((items) => items.filter((item) => item.id !== report.id));
+      setNotice(isBangla ? 'রিপোর্টটি পর্যালোচনা করা হয়েছে।' : 'Report handled.');
+    } catch (caught) {
+      setError(messageFor(caught));
+    }
+  }
+
   if (loading) return <div className="loading-card">{isBangla ? 'মডারেশন প্যানেল লোড হচ্ছে…' : 'Loading moderation panel…'}</div>;
   if (error && !user?.moderator) return <section className="moderation-gate"><span className="auth-required-mark">✦</span><p className="section-kicker">{isBangla ? 'প্রশাসক এলাকা' : 'Administrator area'}</p><h1>{isBangla ? 'মডারেটর অনুমতি প্রয়োজন' : 'Moderator access required'}</h1><p>{error}</p><Link className="button" href={`/${locale}/${user ? 'account' : 'auth'}`}>{user ? (isBangla ? 'অ্যাকাউন্টে ফিরুন' : 'Back to account') : (isBangla ? 'লগইন করুন' : 'Sign in')}</Link></section>;
   if (!user?.moderator) return <section className="moderation-gate"><span className="auth-required-mark">✦</span><p className="section-kicker">{isBangla ? 'প্রশাসক এলাকা' : 'Administrator area'}</p><h1>{isBangla ? 'মডারেটর অনুমতি প্রয়োজন' : 'Moderator access required'}</h1><p>{isBangla ? 'এই প্যানেল শুধু অনুমোদিত মডারেটরদের জন্য।' : 'This panel is available to authorized moderators only.'}</p><Link className="button" href={`/${locale}/${user ? 'account' : 'auth'}`}>{user ? (isBangla ? 'অ্যাকাউন্টে ফিরুন' : 'Back to account') : (isBangla ? 'লগইন করুন' : 'Sign in')}</Link></section>;
@@ -171,7 +193,7 @@ export function ModerationPanel({ locale }: { locale: Locale }) {
   return <div className="moderation-page">
     <header className="moderation-heading"><div><Link className="back-link" href={`/${locale}/account`}>← {isBangla ? 'অ্যাকাউন্টে ফিরুন' : 'Back to account'}</Link><p className="section-kicker">{isBangla ? 'মডারেশন ও যাচাই' : 'Moderation & verification'}</p><h1>{isBangla ? 'যোগ্য আলেম, দায়িত্বশীল পর্যালোচনা।' : 'Steward the scholar network.'}</h1><p>{isBangla ? 'আলেমদের যোগ্যতা যাচাই করুন এবং প্রতিটি প্রশ্নে আলাদা উত্তরদাতা ও পর্যালোচক নির্ধারণ করুন।' : 'Review scholar credentials and assign a distinct answering scholar and independent reviewer to each question.'}</p></div></header>
     <div className="moderation-stats"><div><strong>{scholars.filter((item) => item.verification_status === 'pending').length}</strong><span>{isBangla ? 'আবেদন অপেক্ষমাণ' : 'Applications pending'}</span></div><div><strong>{activeScholars.length}</strong><span>{isBangla ? 'সক্রিয় স্কলার' : 'Active scholars'}</span></div><div><strong>{questions.length}</strong><span>{isBangla ? 'নির্ধারণ অপেক্ষমাণ' : 'Questions to assign'}</span></div></div>
-    <div className="moderation-tabs"><button type="button" className={tab === 'applications' ? 'scholar-tab active' : 'scholar-tab'} onClick={() => setTab('applications')}>{isBangla ? 'স্কলার আবেদন' : 'Scholar applications'} <span>{scholars.filter((item) => item.verification_status === 'pending').length}</span></button><button type="button" className={tab === 'assignments' ? 'scholar-tab active' : 'scholar-tab'} onClick={() => setTab('assignments')}>{isBangla ? 'প্রশ্ন নির্ধারণ' : 'Question assignments'} <span>{questions.length}</span></button></div>
+    <div className="moderation-tabs"><button type="button" className={tab === 'applications' ? 'scholar-tab active' : 'scholar-tab'} onClick={() => setTab('applications')}>{isBangla ? 'স্কলার আবেদন' : 'Scholar applications'} <span>{scholars.filter((item) => item.verification_status === 'pending').length}</span></button><button type="button" className={tab === 'assignments' ? 'scholar-tab active' : 'scholar-tab'} onClick={() => setTab('assignments')}>{isBangla ? 'প্রশ্ন নির্ধারণ' : 'Question assignments'} <span>{questions.length}</span></button><button type="button" className={tab === 'reports' ? 'scholar-tab active' : 'scholar-tab'} onClick={() => setTab('reports')}>{isBangla ? 'রিপোর্ট' : 'Reports'} <span>{reports.length}</span></button></div>
     {notice ? <p className="form-success moderation-feedback" role="status">{notice}</p> : null}
     {error ? <p className="form-error moderation-feedback" role="alert">{error}</p> : null}
     {tab === 'applications' ? <section className="moderation-section"><div className="moderation-filter" aria-label={isBangla ? 'আবেদনের অবস্থা' : 'Filter applications'}>{(['pending', 'approved', 'rejected', 'all'] as ScholarFilter[]).map((item) => <button key={item} className={filter === item ? 'moderation-filter-active' : ''} type="button" onClick={() => setFilter(item)}>{item === 'all' ? (isBangla ? 'সব' : 'All') : item === 'pending' ? (isBangla ? 'অপেক্ষমাণ' : 'Pending') : item === 'approved' ? (isBangla ? 'অনুমোদিত' : 'Approved') : (isBangla ? 'প্রত্যাখ্যাত' : 'Rejected')}</button>)}</div>
@@ -182,6 +204,6 @@ export function ModerationPanel({ locale }: { locale: Locale }) {
         {scholar.verification_note ? <p className="moderation-note"><strong>{isBangla ? 'আগের নোট' : 'Decision note'}:</strong> {scholar.verification_note}</p> : null}
         <div className="moderation-card-actions">{scholar.verification_status !== 'approved' ? <button className="button" type="button" disabled={busyScholar === scholar.user_id} onClick={() => handleDecision(scholar, 'approve')}>{isBangla ? 'অনুমোদন' : 'Approve'}</button> : null}{scholar.verification_status !== 'rejected' && !scholar.is_suspended ? <button className="button button-danger" type="button" disabled={busyScholar === scholar.user_id} onClick={() => handleDecision(scholar, scholar.verification_status === 'pending' ? 'reject' : 'suspend')}>{scholar.verification_status === 'pending' ? (isBangla ? 'প্রত্যাখ্যান' : 'Reject') : (isBangla ? 'স্থগিত করুন' : 'Suspend')}</button> : null}{scholar.is_suspended ? <button className="button button-ghost" type="button" disabled={busyScholar === scholar.user_id} onClick={() => handleDecision(scholar, 'unsuspend')}>{isBangla ? 'পুনরায় সক্রিয় করুন' : 'Reinstate'}</button> : null}</div>
       </article>)}</div> : <div className="empty-state">{isBangla ? 'এই ফিল্টারে কোনো স্কলার প্রোফাইল নেই।' : 'No scholar profiles match this filter.'}</div>}
-    </section> : <section className="moderation-section">{activeScholars.length < 2 ? <div className="empty-state">{isBangla ? 'প্রশ্ন নির্ধারণের আগে কমপক্ষে দুইজন সক্রিয় স্কলার অনুমোদন করুন।' : 'Approve at least two active scholars before assigning questions.'}</div> : questions.length ? <div className="moderation-question-list">{questions.map((question) => <AssignmentRow key={question.id} question={question} scholars={activeScholars} locale={locale} onAssigned={handleAssign} />)}</div> : <div className="empty-state">{isBangla ? 'এখন কোনো প্রশ্ন নির্ধারণের অপেক্ষায় নেই।' : 'No questions are waiting for assignment.'}</div>}</section>}
+    </section> : tab === 'assignments' ? <section className="moderation-section">{activeScholars.length < 2 ? <div className="empty-state">{isBangla ? 'প্রশ্ন নির্ধারণের আগে কমপক্ষে দুইজন সক্রিয় স্কলার অনুমোদন করুন।' : 'Approve at least two active scholars before assigning questions.'}</div> : questions.length ? <div className="moderation-question-list">{questions.map((question) => <AssignmentRow key={question.id} question={question} scholars={activeScholars} locale={locale} onAssigned={handleAssign} />)}</div> : <div className="empty-state">{isBangla ? 'এখন কোনো প্রশ্ন নির্ধারণের অপেক্ষায় নেই।' : 'No questions are waiting for assignment.'}</div>}</section> : <section className="moderation-section">{reports.length ? <div className="moderation-question-list">{reports.map((report) => <article className="moderation-question-card" key={report.id}><div className="moderation-question-heading"><div><span className="question-number">REPORT #{report.id}</span><h3><Link href={`/${locale}/fatwas/${report.publication_id}`}>{report.title || `Fatwa #${report.publication_id}`}</Link></h3></div><StatusPill status={report.visibility} /></div><p className="moderation-question-body">{report.reason}</p><div className="moderation-question-meta"><span>{isBangla ? 'রিপোর্টকারী' : 'Reported by'}: {report.reporter}</span><span>{formatDate(report.created_at, locale)}</span></div><div className="moderation-card-actions"><button className="button button-danger" type="button" disabled={report.visibility !== 'public'} onClick={() => handleReport(report, 'withdraw')}>{isBangla ? 'প্রকাশনা প্রত্যাহার' : 'Withdraw publication'}</button><button className="button" type="button" onClick={() => handleReport(report, 'resolve')}>{isBangla ? 'সমাধান' : 'Resolve'}</button><button className="button button-ghost" type="button" onClick={() => handleReport(report, 'dismiss')}>{isBangla ? 'খারিজ' : 'Dismiss'}</button></div></article>)}</div> : <div className="empty-state">{isBangla ? 'কোনো খোলা রিপোর্ট নেই।' : 'No open reports.'}</div>}</section>}
   </div>;
 }

@@ -6,6 +6,7 @@ import { isLocale, type Locale } from '../../../lib/api';
 
 type Section = { title: string; body: string; points?: string[] };
 type PageContent = { kicker: string; title: string; intro: string; sections: Section[] };
+const contactEmail = process.env.CONTACT_EMAIL || 'contact@example.com';
 
 const content: Record<string, Record<Locale, PageContent>> = {
   about: {
@@ -37,7 +38,7 @@ const content: Record<string, Record<Locale, PageContent>> = {
         { title: '২. যোগ্যতার সঙ্গে মিল', body: 'বিষয়, ভাষা, প্রাসঙ্গিক মাজহাব ও আলেমের কাজের চাপ বিবেচনা করে একজন উত্তরদাতা এবং ভিন্ন একজন পর্যালোচক নির্বাচন করা হয়।' },
         { title: '৩. দলিলসহ উত্তর', body: 'উত্তরদাতা আলেম প্রাসঙ্গিক দলিল, ব্যাখ্যা এবং ব্যবহৃত পদ্ধতি উল্লেখ করে একটি খসড়া প্রস্তুত করেন। জমা দেওয়া প্রতিটি সংস্করণ সংরক্ষিত থাকে।' },
         { title: '৪. স্বতন্ত্র পর্যালোচনা', body: 'পর্যালোচক একই ব্যক্তি হতে পারেন না। তিনি উত্তর অনুমোদন করতে, পরিবর্তন চাইতে বা কারণসহ প্রত্যাখ্যান করতে পারেন। শুধু অনুমোদিত সংস্করণই প্রকাশিত হয়।' },
-        { title: '৫. সংশোধন ও জবাবদিহি', body: 'প্রকাশের পর সংশোধন প্রয়োজন হলে নতুন সংস্করণ আবার পর্যালোচনার মধ্য দিয়ে যায়। আগের সিদ্ধান্ত ও সংশোধনের ইতিহাস সংরক্ষিত থাকে।' },
+        { title: '৫. সংশোধন ও জবাবদিহি', body: 'প্রকাশের পর গুরুতর সমস্যা জানানো হলে মডারেটর প্রকাশনাটি প্রত্যাহার করতে পারেন। আগের সিদ্ধান্ত ও সংস্করণ সংরক্ষিত থাকে।' },
       ],
     },
     en: {
@@ -48,7 +49,7 @@ const content: Record<string, Record<Locale, PageContent>> = {
         { title: '2. Qualified matching', body: 'We assign an answering scholar and a different reviewer based on topic, language, relevant school of thought, and availability.' },
         { title: '3. Evidence-led drafting', body: 'The answering scholar prepares a draft with relevant evidence, explanation, references, and a methodology label. Every submitted revision is preserved.' },
         { title: '4. Independent review', body: 'The reviewer cannot be the author. They may approve the answer, request changes, or reject it with a reason. Only an approved revision can be released.' },
-        { title: '5. Corrections and accountability', body: 'If an answer needs correction after publication, the new revision goes through review again. Earlier decisions and the correction history remain recorded.' },
+        { title: '5. Corrections and accountability', body: 'Moderators can withdraw a publication when a serious issue is reported. Earlier decisions and revisions remain recorded.' },
       ],
     },
   },
@@ -120,8 +121,8 @@ const content: Record<string, Record<Locale, PageContent>> = {
       intro: 'কনটেন্ট, গোপনীয়তা, প্রযুক্তিগত সমস্যা বা আলেম যাচাই—সঠিক পথে আপনার বার্তা পৌঁছাতে নিচের নির্দেশনা ব্যবহার করুন।',
       sections: [
         { title: 'প্রকাশিত উত্তর নিয়ে উদ্বেগ', body: 'সংশ্লিষ্ট ফতোয়া খুলে “রিপোর্ট” ব্যবহার করুন। এতে প্রকাশনার পরিচয় স্বয়ংক্রিয়ভাবে যুক্ত হয় এবং মডারেটর দ্রুত বিষয়টি খুঁজে পান।' },
-        { title: 'অ্যাকাউন্ট বা গোপনীয়তা', body: 'আপনার অ্যাকাউন্টে ব্যবহৃত ইমেইল থেকে privacy@universeofilm.org ঠিকানায় লিখুন। প্রশ্নের সংবেদনশীল বিবরণ ইমেইলে পুনরায় পাঠাবেন না।' },
-        { title: 'সাধারণ যোগাযোগ', body: 'সহযোগিতা, আলেম যাচাই বা সাধারণ মতামতের জন্য hello@universeofilm.org ঠিকানায় লিখুন। আমরা সাধারণত কয়েক কার্যদিবসের মধ্যে উত্তর দেওয়ার চেষ্টা করি।' },
+        { title: 'অ্যাকাউন্ট বা গোপনীয়তা', body: `আপনার অ্যাকাউন্টে ব্যবহৃত ইমেইল থেকে ${contactEmail} ঠিকানায় লিখুন। প্রশ্নের সংবেদনশীল বিবরণ ইমেইলে পুনরায় পাঠাবেন না।` },
+        { title: 'সাধারণ যোগাযোগ', body: `সহযোগিতা, আলেম যাচাই বা সাধারণ মতামতের জন্য ${contactEmail} ঠিকানায় লিখুন। আমরা সাধারণত কয়েক কার্যদিবসের মধ্যে উত্তর দেওয়ার চেষ্টা করি।` },
       ],
     },
     en: {
@@ -129,8 +130,8 @@ const content: Record<string, Record<Locale, PageContent>> = {
       intro: 'For content, privacy, technical issues, or scholar verification, use the guidance below so your message reaches the right place.',
       sections: [
         { title: 'A concern about a published answer', body: 'Open the relevant fatwa and use “Report an issue”. This attaches the publication reference automatically and helps moderators find it quickly.' },
-        { title: 'Account or privacy', body: 'Write from your account email to privacy@universeofilm.org. Please do not repeat sensitive details from your question in the email.' },
-        { title: 'General enquiries', body: 'For partnerships, scholar verification, or general feedback, write to hello@universeofilm.org. We aim to reply within a few working days.' },
+        { title: 'Account or privacy', body: `Write from your account email to ${contactEmail}. Please do not repeat sensitive details from your question in the email.` },
+        { title: 'General enquiries', body: `For partnerships, scholar verification, or general feedback, write to ${contactEmail}. We aim to reply within a few working days.` },
       ],
     },
   },

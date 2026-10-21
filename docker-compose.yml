@@ -25,7 +25,7 @@ services:
     volumes:
       - staticfiles_data:/app/staticfiles
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/')"]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen(urllib.request.Request('http://127.0.0.1:8000/api/v1/health/', headers={'X-Forwarded-Proto': 'https'}))"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -45,6 +45,16 @@ services:
       redis:
         condition: service_started
 
+  celery_beat:
+    build: ./backend
+    env_file: .env
+    command: celery -A blog beat --loglevel=INFO
+    depends_on:
+      django:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
   frontend:
     build:
       context: ./frontend
@@ -53,12 +63,15 @@ services:
     environment:
       API_ORIGIN: ${API_ORIGIN:-http://django:8000}
       NEXT_PUBLIC_API_ORIGIN: ${NEXT_PUBLIC_API_ORIGIN:-http://django:8000}
+      CONTACT_EMAIL: ${CONTACT_EMAIL:-contact@example.com}
     depends_on:
       django:
         condition: service_healthy
 
   caddy:
     image: caddy:2-alpine
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports:
       - "80:80"
       - "443:443"

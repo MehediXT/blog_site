@@ -36,6 +36,8 @@ if not SECRET_KEY:
         raise ImproperlyConfigured(
             'DJANGO_SECRET_KEY must be set when DJANGO_DEBUG is False.'
         )
+if not DEBUG and (len(SECRET_KEY) < 50 or SECRET_KEY == 'replace-me'):
+    raise ImproperlyConfigured('Set a long, unique DJANGO_SECRET_KEY for production.')
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -73,6 +75,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'blog.middleware.APINoStoreMiddleware',
 ]
 
 INSTALLED_APPS.append('rest_framework')
@@ -101,14 +104,17 @@ WSGI_APPLICATION = 'blog.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+if not DEBUG and os.getenv('DB_PASSWORD') in (None, '', 'replace-me', 'password'):
+    raise ImproperlyConfigured('Set a unique DB_PASSWORD for production.')
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'blog_site',
-        'USER': 'postgres',
-        'PASSWORD': 'password',
-        'HOST': 'localhost',  # Or your remote database server IP/URL
-        'PORT': '5432',       # Default PostgreSQL port
+        'ENGINE': os.getenv('DB_ENGINE', 'django.db.backends.postgresql'),
+        'NAME': os.getenv('DB_NAME', 'blog_site'),
+        'USER': os.getenv('DB_USER', 'postgres'),
+        'PASSWORD': os.getenv('DB_PASSWORD', ''),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
     }
 }
 
@@ -130,6 +136,7 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+PASSWORD_RESET_TIMEOUT = 60 * 60 * 48
 
 
 # Internationalization
@@ -153,8 +160,23 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
-EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = 'Universe of Ilm <noreply@example.com>'
+EMAIL_BACKEND = os.getenv(
+    'DJANGO_EMAIL_BACKEND',
+    'django.core.mail.backends.console.EmailBackend' if DEBUG
+    else 'django.core.mail.backends.smtp.EmailBackend',
+)
+EMAIL_HOST = os.getenv('EMAIL_HOST', '')
+EMAIL_PORT = int(os.getenv('EMAIL_PORT', '587'))
+EMAIL_HOST_USER = os.getenv('EMAIL_HOST_USER', '')
+EMAIL_HOST_PASSWORD = os.getenv('EMAIL_HOST_PASSWORD', '')
+EMAIL_USE_TLS = os.getenv('EMAIL_USE_TLS', 'True').lower() == 'true'
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'Universe of Ilm <noreply@example.com>')
+PUBLIC_ORIGIN = os.getenv('PUBLIC_ORIGIN', '').rstrip('/')
+if not DEBUG and EMAIL_BACKEND == 'django.core.mail.backends.smtp.EmailBackend':
+    if not EMAIL_HOST or 'example.com' in DEFAULT_FROM_EMAIL or not PUBLIC_ORIGIN.startswith('https://'):
+        raise ImproperlyConfigured(
+            'Set EMAIL_HOST, DEFAULT_FROM_EMAIL, and an HTTPS PUBLIC_ORIGIN for production email.'
+        )
 
 # These defaults are safe for local HTTP development. Set the corresponding
 # environment variables when the application is served over HTTPS.
@@ -168,11 +190,26 @@ CSRF_COOKIE_SECURE = os.getenv(
     'DJANGO_CSRF_COOKIE_SECURE', 'False' if DEBUG else 'True'
 ).lower() == 'true'
 SECURE_HSTS_SECONDS = int(os.getenv('DJANGO_SECURE_HSTS_SECONDS', '0'))
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 CELERY_BROKER_URL = os.getenv('REDIS_URL', 'redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
+CELERY_BEAT_SCHEDULE = {
+    'deliver-pending-email': {
+        'task': 'notifications.tasks.deliver_pending_notifications',
+        'schedule': 60.0,
+    },
+}
+
+if not DEBUG:
+    CACHES = {
+        'default': {
+            'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+            'LOCATION': os.getenv('CACHE_URL', 'redis://redis:6379/1'),
+        },
+    }
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
@@ -181,6 +218,13 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': ('rest_framework.permissions.IsAuthenticated',),
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_RATES': {
+        'login': '10/min',
+        'registration': '5/hour',
+        'password_reset': '5/hour',
+        'question_write': '30/hour',
+        'report': '10/day',
+    },
 }
 
 SIMPLE_JWT = {
@@ -192,6 +236,8 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
     'SIGNING_KEY': os.getenv('DJANGO_JWT_SIGNING_KEY', SECRET_KEY),
 }
+if not DEBUG and SIMPLE_JWT['SIGNING_KEY'].startswith('replace'):
+    raise ImproperlyConfigured('Set a unique DJANGO_JWT_SIGNING_KEY for production.')
 
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()

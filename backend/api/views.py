@@ -1,22 +1,32 @@
 import secrets
 import uuid
+import logging
+from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.encoding import force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
+from django.utils.encoding import force_bytes
 from django.utils.text import slugify
 from rest_framework import serializers, status
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
 
 from accounts.models import EmailVerificationToken, ScholarProfile, UserProfile
 from .serializers import (
@@ -68,6 +78,7 @@ from .permissions import (
 
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class PublicPageNumberPagination(PageNumberPagination):
@@ -116,6 +127,25 @@ def notify(user, kind, title, target_url=''):
     return notification
 
 
+def send_verification_email(user, request):
+    token = EmailVerificationToken.objects.create(
+        user=user,
+        token=secrets.token_urlsafe(32),
+    )
+    path = f'/api/v1/auth/verify-email/{token.token}/'
+    verification_url = (
+        f'{settings.PUBLIC_ORIGIN}{path}' if settings.PUBLIC_ORIGIN
+        else request.build_absolute_uri(path)
+    )
+    send_mail(
+        'Verify your Universe of Ilm email',
+        f'Open the verification link to activate submissions: {verification_url}',
+        settings.DEFAULT_FROM_EMAIL,
+        [user.email],
+        fail_silently=False,
+    )
+
+
 class EmailOrUsernameTokenSerializer(TokenObtainPairSerializer):
     username = serializers.CharField()
 
@@ -143,6 +173,9 @@ class EmailOrUsernameTokenSerializer(TokenObtainPairSerializer):
 
 class LoginAPIView(APIView):
     permission_classes = (AllowAny,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = 'login'
+
     def post(self, request, *args, **kwargs):
         serializer = EmailOrUsernameTokenSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
@@ -151,25 +184,15 @@ class LoginAPIView(APIView):
 
 class RegisterAPIView(APIView):
     permission_classes = (AllowAny,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = 'registration'
 
     def post(self, request, *args, **kwargs):
         serializer = RegisterSerializer(data=request.data, context={'request': request})
         serializer.is_valid(raise_exception=True)
-        user = serializer.save()
-        token = EmailVerificationToken.objects.create(
-            user=user,
-            token=secrets.token_urlsafe(32),
-        )
-        send_mail(
-            'Verify your Universe of Ilm email',
-            (
-                'Open the verification link to activate submissions: '
-                f'{request.build_absolute_uri("/api/v1/auth/verify-email/" + token.token + "/")}'
-            ),
-            settings.DEFAULT_FROM_EMAIL,
-            [user.email],
-            fail_silently=True,
-        )
+        with transaction.atomic():
+            user = serializer.save()
+            send_verification_email(user, request)
         refresh = RefreshToken.for_user(user)
         return Response(
             {
@@ -211,12 +234,87 @@ class VerifyEmailAPIView(APIView):
                 {'detail': 'This verification link is invalid or already used.'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if verification.created_at < timezone.now() - timedelta(days=2):
+            return Response(
+                {'detail': 'This verification link has expired.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         verification.used_at = timezone.now()
         verification.save(update_fields=('used_at',))
         profile = profile_for(verification.user)
         profile.email_verified = True
         profile.save(update_fields=('email_verified', 'updated_at'))
         return Response({'verified': True})
+
+
+class ResendVerificationAPIView(APIView):
+    permission_classes = (IsAuthenticated,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = 'registration'
+
+    def post(self, request):
+        if profile_for(request.user).email_verified:
+            return Response({'verified': True, 'sent': False})
+        with transaction.atomic():
+            send_verification_email(request.user, request)
+        return Response({'verified': False, 'sent': True})
+
+
+class PasswordResetRequestAPIView(APIView):
+    permission_classes = (AllowAny,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = 'password_reset'
+
+    def post(self, request):
+        email = str(request.data.get('email', '')).strip()
+        user = User.objects.filter(email__iexact=email, is_active=True).first()
+        if user and user.has_usable_password():
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            locale = profile_for(user).preferred_language
+            path = f'/{locale}/auth?reset_uid={uid}&reset_token={token}'
+            origin = settings.PUBLIC_ORIGIN or request.build_absolute_uri('/').rstrip('/')
+            try:
+                send_mail(
+                    'Reset your Universe of Ilm password',
+                    f'Open this link to reset your password: {origin}{path}',
+                    settings.DEFAULT_FROM_EMAIL,
+                    [user.email],
+                    fail_silently=False,
+                )
+            except Exception:
+                # Keep the response identical for unknown and existing accounts.
+                logger.exception('Password reset email delivery failed')
+        return Response({'detail': 'If this email has an account, a reset link has been sent.'})
+
+
+class PasswordResetConfirmAPIView(APIView):
+    permission_classes = (AllowAny,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = 'password_reset'
+
+    def post(self, request):
+        uid = request.data.get('uid', '')
+        token = request.data.get('token', '')
+        password = request.data.get('password', '')
+        if not all(isinstance(value, str) for value in (uid, token, password)):
+            return Response({'detail': 'Invalid reset link.'}, status=400)
+        try:
+            user = User.objects.get(pk=force_str(urlsafe_base64_decode(uid)))
+        except (ValueError, TypeError, OverflowError, User.DoesNotExist):
+            user = None
+        if user is None or not default_token_generator.check_token(user, token):
+            return Response({'detail': 'Invalid or expired reset link.'}, status=400)
+        try:
+            validate_password(password, user)
+        except DjangoValidationError as exc:
+            return Response({'password': exc.messages}, status=400)
+        with transaction.atomic():
+            user.set_password(password)
+            user.save(update_fields=('password',))
+            for outstanding in OutstandingToken.objects.filter(user=user):
+                BlacklistedToken.objects.get_or_create(token=outstanding)
+        return Response({'reset': True})
 
 
 class HealthAPIView(APIView):
@@ -313,6 +411,11 @@ class ScholarApplicationAPIView(APIView):
 
 class QuestionListCreateAPIView(APIView):
     permission_classes = (IsAuthenticated,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = 'question_write'
+
+    def get_throttles(self):
+        return [] if self.request.method == 'GET' else super().get_throttles()
 
     def get_queryset(self):
         return Question.objects.filter(owner=self.request.user).select_related(
@@ -339,11 +442,18 @@ class QuestionListCreateAPIView(APIView):
 
 class QuestionDetailAPIView(APIView):
     permission_classes = (IsAuthenticated, IsQuestionParticipant)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = 'question_write'
+
+    def get_throttles(self):
+        return [] if self.request.method == 'GET' else super().get_throttles()
 
     def get_queryset(self):
         queryset = Question.objects.select_related('category').prefetch_related(
             'clarifications'
         )
+        if self.request.method in ('POST', 'DELETE'):
+            queryset = queryset.select_for_update(of=('self',))
         return queryset.filter(
             Q(owner=self.request.user)
             | Q(assigned_scholar=self.request.user)
@@ -390,6 +500,10 @@ class QuestionDetailAPIView(APIView):
         return Response({'question': QuestionSerializer(question, context={'request': request}).data})
 
     def delete(self, request, pk, *args, **kwargs):
+        with transaction.atomic():
+            return self._delete_locked(request, pk)
+
+    def _delete_locked(self, request, pk):
         question = self.get_object(request, pk)
         if question is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -407,6 +521,10 @@ class QuestionDetailAPIView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def post(self, request, pk, *args, **kwargs):
+        with transaction.atomic():
+            return self._post_locked(request, pk)
+
+    def _post_locked(self, request, pk):
         question = self.get_object(request, pk)
         if question is None:
             return Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
@@ -432,6 +550,9 @@ class QuestionDetailAPIView(APIView):
                 question.public_body = ''
             question.status = 'submitted'
             question.submitted_at = timezone.now()
+            question.assigned_scholar = None
+            question.assigned_reviewer = None
+            question.assigned_at = None
             question.save()
         elif action == 'withdraw':
             self.require_object_permission(request, question, IsQuestionOwner)
@@ -447,7 +568,13 @@ class QuestionDetailAPIView(APIView):
             if question.status in ('answered', 'withdrawn'):
                 return Response({'detail': 'Consent cannot be changed at this stage.'}, status=403)
             self.require_object_permission(request, question, IsQuestionOwner)
-            question.is_public = data.get('is_public', False)
+            requested_public = data.get('is_public', False)
+            if requested_public and question.status not in ('draft', 'submitted', 'rejected'):
+                return Response(
+                    {'detail': 'Public consent must be set before a scholar is assigned.'},
+                    status=409,
+                )
+            question.is_public = requested_public
             if question.is_public:
                 question.public_title = data.get('public_title', question.public_title or question.original_title).strip()
                 question.public_body = data.get('public_body', question.public_body or question.original_body).strip()
@@ -459,6 +586,8 @@ class QuestionDetailAPIView(APIView):
             question.save(update_fields=('is_public', 'public_title', 'public_body', 'updated_at'))
         elif action == 'clarify':
             self.require_object_permission(request, question, IsClarificationParticipant)
+            if question.status in ('withdrawn', 'answered', 'rejected'):
+                return Response({'detail': 'This question is closed.'}, status=409)
             body = data.get('body', '').strip()
             if not body:
                 return Response({'detail': 'A clarification message is required.'}, status=400)
@@ -565,6 +694,8 @@ class ScholarDetailAPIView(APIView):
 
 class ReportCreateAPIView(APIView):
     permission_classes = (IsAuthenticated,)
+    throttle_classes = (ScopedRateThrottle,)
+    throttle_scope = 'report'
 
     def post(self, request, *args, **kwargs):
         data = request.data.copy()
@@ -576,6 +707,63 @@ class ReportCreateAPIView(APIView):
             {'report_id': report.id},
             status=status.HTTP_201_CREATED,
         )
+
+
+class ModerationReportListAPIView(APIView):
+    permission_classes = (IsModerator,)
+
+    def get(self, request):
+        reports = Report.objects.filter(status='open').select_related(
+            'publication__approved_revision', 'reporter'
+        ).order_by('created_at')[:100]
+        return Response({'results': [
+            {
+                'id': report.pk,
+                'publication_id': report.publication_id,
+                'title': report.publication.approved_revision.public_question_title,
+                'reason': report.reason,
+                'reporter': report.reporter.username,
+                'created_at': report.created_at,
+                'visibility': report.publication.visibility,
+            }
+            for report in reports
+        ]})
+
+
+class ModerationReportActionAPIView(APIView):
+    permission_classes = (IsModerator,)
+
+    def post(self, request, report_id):
+        action = request.data.get('action')
+        if action not in ('resolve', 'dismiss', 'withdraw'):
+            return Response({'detail': 'Unknown report action.'}, status=400)
+        note = str(request.data.get('note', '')).strip()
+        if action == 'withdraw' and not note:
+            return Response({'detail': 'Add a reason for withdrawal.'}, status=400)
+        with transaction.atomic():
+            report = Report.objects.select_for_update().filter(pk=report_id).first()
+            if report is None:
+                return Response({'detail': 'Report not found.'}, status=404)
+            if report.status != 'open':
+                return Response({'detail': 'Report already handled.'}, status=409)
+            if action == 'withdraw':
+                publication = Publication.objects.select_for_update().get(pk=report.publication_id)
+                if publication.visibility != 'public':
+                    return Response({'detail': 'Publication is no longer public.'}, status=409)
+                publication.visibility = 'withdrawn'
+                publication.withdrawn_at = timezone.now()
+                publication.save(update_fields=('visibility', 'withdrawn_at'))
+            report.status = 'dismissed' if action == 'dismiss' else 'resolved'
+            report.resolved_at = timezone.now()
+            report.save(update_fields=('status', 'resolved_at'))
+            AuditEvent.objects.create(
+                actor=request.user,
+                event_type=f'report_{action}',
+                object_type='report',
+                object_id=str(report.pk),
+                metadata={'publication_id': report.publication_id, 'note': note},
+            )
+        return Response({'id': report.pk, 'status': report.status})
 
 
 class BookmarkListCreateAPIView(APIView):
@@ -649,30 +837,40 @@ class AnswerCreateAPIView(APIView):
         if question is None:
             return Response({'detail': 'Assignment not found.'}, status=404)
         self.check_object_permissions(request, question)
+        if question.status not in ('assigned', 'in_progress', 'needs_clarification'):
+            return Response({'detail': 'This question is not open for an answer.'}, status=409)
         if data.get('methodology_id') and not Methodology.objects.filter(
             pk=data['methodology_id'], is_active=True
         ).exists():
             return Response({'detail': 'Methodology not found.'}, status=400)
         with transaction.atomic():
+            question = Question.objects.select_for_update().get(pk=question.pk)
+            if (
+                question.assigned_scholar_id != request.user.id
+                or question.status not in ('assigned', 'in_progress', 'needs_clarification')
+            ):
+                return Response({'detail': 'This question is no longer open for an answer.'}, status=409)
             answer, _ = Answer.objects.get_or_create(
                 question=question,
                 defaults={'author': request.user},
             )
             if answer.author_id != request.user.id:
                 return Response({'detail': 'This answer belongs to another scholar.'}, status=403)
+            if answer.revisions.filter(status='in_review').exists():
+                return Response({'detail': 'A revision is already awaiting review.'}, status=409)
             draft = answer.revisions.filter(
-                status__in=('draft', 'changes_requested'),
+                status='draft',
                 created_by=request.user,
             ).first()
             if draft is None:
+                previous = answer.revisions.order_by('-revision_number').first()
                 next_number = (
-                    answer.revisions.order_by('-revision_number')
-                    .values_list('revision_number', flat=True)
-                    .first() or 0
+                    previous.revision_number if previous else 0
                 ) + 1
                 draft = AnswerRevision.objects.create(
                     answer=answer,
                     revision_number=next_number,
+                    supersedes=previous,
                     language=data.get('language', question.language),
                     body=data['body'],
                     public_question_title=question.public_title,
@@ -756,6 +954,18 @@ class ReviewActionAPIView(APIView):
                 return Response({'detail': 'A reviewer cannot approve their own answer.'}, status=403)
             if revision.status != 'in_review':
                 return Response({'detail': 'This revision is no longer awaiting review.'}, status=409)
+            question = Question.objects.select_for_update().get(pk=revision.answer.question_id)
+            if question.status not in ('in_progress', 'needs_clarification'):
+                return Response({'detail': 'This question is no longer open for review.'}, status=409)
+            if question.is_public and (
+                not revision.public_question_title or not revision.public_question_body
+                or revision.public_question_title != question.public_title
+                or revision.public_question_body != question.public_body
+            ):
+                return Response(
+                    {'detail': 'Public wording changed; submit a new revision for review.'},
+                    status=409,
+                )
             ReviewDecision.objects.create(
                 revision=revision,
                 reviewer=request.user,
@@ -764,7 +974,6 @@ class ReviewActionAPIView(APIView):
             )
             revision.status = decision
             revision.save(update_fields=('status',))
-            question = revision.answer.question
             if decision == 'approved':
                 revision.answer.approved_revision = revision
                 revision.answer.save(update_fields=('approved_revision', 'updated_at'))
@@ -795,7 +1004,13 @@ class ReviewActionAPIView(APIView):
                 notify(revision.created_by, 'answer_changes_requested', 'Your answer needs changes', f'/scholar/questions/{question.id}/')
             else:
                 question.status = 'rejected'
-                question.save(update_fields=('status', 'updated_at'))
+                question.assigned_scholar = None
+                question.assigned_reviewer = None
+                question.assigned_at = None
+                question.save(update_fields=(
+                    'status', 'assigned_scholar', 'assigned_reviewer',
+                    'assigned_at', 'updated_at',
+                ))
                 notify(question.owner, 'question_rejected', 'Your question has an update', f'/questions/{question.id}/')
         return Response({'decision': decision, 'revision_id': revision.id})
 
@@ -822,6 +1037,7 @@ class AssignQuestionAPIView(APIView):
             question.assigned_at = timezone.now()
             question.status = 'assigned'
             question.save(update_fields=('assigned_scholar', 'assigned_reviewer', 'assigned_at', 'status', 'updated_at'))
+            Answer.objects.filter(question=question).update(author=scholar)
             AuditEvent.objects.create(
                 actor=request.user,
                 event_type='question_assigned',

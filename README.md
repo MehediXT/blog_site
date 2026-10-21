@@ -22,6 +22,7 @@ The deployment has four application services and two data services:
 - Next.js serves the Bangla and English public pages.
 - Django/Gunicorn serves the API and admin; the custom Django template frontend has been removed.
 - Celery processes background jobs through Redis.
+- Celery Beat schedules delivery from the notification outbox.
 - PostgreSQL stores production data.
 - Caddy serves collected Django static files from a shared Docker volume.
 
@@ -65,21 +66,31 @@ cd blog_site
 cp .env.example .env
 ```
 
-Edit `.env`. At minimum, use a unique secret key and database password:
+Edit `.env` with unique secrets, your domain, and working SMTP settings:
 
 ```dotenv
 DJANGO_DEBUG=False
 DJANGO_SECRET_KEY=paste-a-long-random-value-here
-DJANGO_ALLOWED_HOSTS=example.com,www.example.com
-DJANGO_CSRF_TRUSTED_ORIGINS=https://example.com,https://www.example.com
+DJANGO_ALLOWED_HOSTS=example.com
+DJANGO_CSRF_TRUSTED_ORIGINS=https://example.com
+DJANGO_SECURE_SSL_REDIRECT=True
+SITE_ADDRESS=example.com
+PUBLIC_ORIGIN=https://example.com
 DB_NAME=universe_of_ilm
 DB_USER=universe
 DB_PASSWORD=use-a-long-random-password
 DB_HOST=db
 DB_PORT=5432
 REDIS_URL=redis://redis:6379/0
+CACHE_URL=redis://redis:6379/1
 API_ORIGIN=http://django:8000
 NEXT_PUBLIC_API_ORIGIN=http://django:8000
+EMAIL_HOST=smtp.your-provider.com
+EMAIL_PORT=587
+EMAIL_HOST_USER=your-smtp-user
+EMAIL_HOST_PASSWORD=your-smtp-password
+DEFAULT_FROM_EMAIL="Universe of Ilm <noreply@example.com>"
+CONTACT_EMAIL=support@example.com
 ```
 
 `DJANGO_CSRF_TRUSTED_ORIGINS` is only needed for Django admin or other browser-based Django POSTs. API clients authenticate with `Authorization: Bearer <access-token>`.
@@ -88,26 +99,10 @@ Do not commit `.env` or reuse the example secret in production.
 
 ### 3. Configure the domain in Caddy
 
-The checked-in `Caddyfile` is configured for local HTTP on `:80`. For HTTPS deployment, replace the global block and site address with your domain:
-
-```caddyfile
-example.com, www.example.com {
-    @backend path /api* /admin* /static* /media*
-    @static path /static/*
-    handle @static {
-        root * /srv/static
-        file_server
-    }
-    handle @backend {
-        reverse_proxy django:8000
-    }
-    handle {
-        reverse_proxy frontend:3000
-    }
-}
-```
-
-Remove `auto_https off` when using a real domain. Point both DNS records at the server and make ports `80` and `443` reachable; Caddy will request and renew certificates automatically.
+Set `SITE_ADDRESS=example.com` in `.env` and point the domain at the server.
+Keep ports `80` and `443` reachable. Caddy uses the environment value in the
+checked-in `Caddyfile` and obtains HTTPS certificates. For local HTTP, use
+`SITE_ADDRESS=:80` and `DJANGO_SECURE_SSL_REDIRECT=False`.
 
 ### 4. Build and start the stack
 
@@ -157,10 +152,13 @@ source .venv/bin/activate
 python -m pip install -r backend/requirements.txt
 ```
 
-Apply migrations and optionally create an administrator:
+Set the connection to your local PostgreSQL server, then apply migrations and
+optionally create an administrator:
 
 ```bash
 cd backend
+export DB_NAME=blog_site DB_USER=postgres DB_PASSWORD=your-local-password
+export DB_HOST=127.0.0.1 DB_PORT=5432
 python manage.py migrate
 python manage.py createsuperuser
 ```
@@ -193,6 +191,11 @@ Open only `http://127.0.0.1:3000/`. Next.js proxies `/api/`, `/admin/`, `/static
 | `DB_ENGINE` | Database engine; Compose uses PostgreSQL. |
 | `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_HOST`, `DB_PORT` | Database connection settings. |
 | `REDIS_URL` | Celery broker and result backend. |
+| `CACHE_URL` | Redis cache for production API throttles. |
+| `SITE_ADDRESS` | Domain served by Caddy, or `:80` for local HTTP. |
+| `PUBLIC_ORIGIN` | Public origin used in verification emails. |
+| `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `DEFAULT_FROM_EMAIL` | SMTP delivery settings. |
+| `CONTACT_EMAIL` | Address shown on the contact page. |
 | `API_ORIGIN` | Server-side Django origin used by Next.js. |
 | `NEXT_PUBLIC_API_ORIGIN` | API origin fallback used by Next.js. |
 
@@ -210,11 +213,11 @@ Open only `http://127.0.0.1:3000/`. Next.js proxies `/api/`, `/admin/`, `/static
 
 The full versioned API is under `/api/v1/`:
 
-- Authentication: `auth/register/`, `auth/token/`, `auth/token/refresh/`, `auth/logout/`, `auth/verify-email/<token>/`
+- Authentication: `auth/register/`, `auth/token/`, `auth/token/refresh/`, `auth/logout/`, `auth/verify-email/<token>/`, `auth/resend-verification/`, `auth/password-reset/`
 - Current user: `me/`, `me/questions/`, `me/bookmarks/`, `me/notifications/`
 - Public library: `fatwas/`, `categories/`, `methodologies/`, `scholars/`
 - Scholar work: `scholar/assignments/`, `scholar/questions/<id>/answer/`
-- Moderation and review: `moderation/questions/<id>/assign/`, `reviews/`
+- Moderation and review: `moderation/questions/<id>/assign/`, `moderation/reports/`, `reviews/`
 
 Private API resources return `404` when the signed-in user is not authorized to access them.
 
@@ -234,7 +237,7 @@ blog_site/
 │   ├── app/            # Locale-aware Next.js routes
 │   ├── components/     # Shared public-site components
 │   └── lib/            # API client and frontend helpers
-├── docker-compose.yml  # PostgreSQL, Redis, Django, Celery, Next.js, and Caddy
+├── docker-compose.yml  # PostgreSQL, Redis, Django, Celery, Beat, Next.js, and Caddy
 ├── Caddyfile           # Reverse proxy and static-file routing
 └── .env.example        # Local configuration template
 ```
@@ -270,7 +273,7 @@ New content uses the question, answer, and review workflow. The old server-rende
 
 - Set `DJANGO_DEBUG=False` and strong `DJANGO_SECRET_KEY` and `DB_PASSWORD` values.
 - Set `DJANGO_ALLOWED_HOSTS` and `DJANGO_CSRF_TRUSTED_ORIGINS` to the real domain.
-- Configure DNS and remove `auto_https off` from `Caddyfile`.
+- Configure DNS, `SITE_ADDRESS`, `PUBLIC_ORIGIN`, and working SMTP credentials.
 - Keep PostgreSQL, Redis, Caddy, and static files on persistent Docker volumes.
 - Back up PostgreSQL before upgrades or migration changes.
 - Review `docker compose logs` after every deployment and verify `/api/v1/health/`.

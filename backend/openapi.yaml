@@ -46,6 +46,14 @@ paths:
       security: []
       responses:
         '200': {description: Rotated access token}
+  /auth/verify-email/{token}/:
+    get: {security: [], responses: {'200': {description: Email verified}, '400': {description: Invalid or expired link}}}
+  /auth/resend-verification/:
+    post: {responses: {'200': {description: Fresh verification email sent}}}
+  /auth/password-reset/:
+    post: {security: [], responses: {'200': {description: Generic password reset response}}}
+  /auth/password-reset/confirm/:
+    post: {security: [], responses: {'200': {description: Password reset}, '400': {description: Invalid or expired token}}}
   /auth/logout/:
     post:
       requestBody:
@@ -87,6 +95,8 @@ paths:
     get:
       security: []
       responses: {'200': {description: Public fatwa}}
+  /fatwas/{id}/report/:
+    post: {responses: {'201': {description: Report submitted}}}
   /categories/:
     get: {security: [], responses: {'200': {description: Active categories}}}
   /methodologies/:
@@ -103,6 +113,12 @@ paths:
     post: {responses: {'200': {description: Review decision}}}
   /moderation/questions/{id}/assign/:
     post: {responses: {'200': {description: Question assignment}}}
+  /moderation/reports/:
+    get: {responses: {'200': {description: Open reports}}}
+  /moderation/reports/{id}/:
+    post:
+      description: Resolve, dismiss, or withdraw a reported publication.
+      responses: {'200': {description: Report handled}, '409': {description: Report already handled}}
 components:
   securitySchemes:
     bearerAuth:

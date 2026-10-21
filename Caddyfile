@@ -1,8 +1,4 @@
-{
-    auto_https off
-}
-
-:80 {
+{$SITE_ADDRESS} {
     @backend path /api* /admin* /static* /media*
     @static path /static/*
     handle @static {

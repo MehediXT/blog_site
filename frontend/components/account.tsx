@@ -11,6 +11,7 @@ import {
   Question,
   User,
   clearAuth,
+  confirmPasswordReset,
   clarifyQuestion,
   createQuestion,
   getBookmarks,
@@ -20,6 +21,8 @@ import {
   login,
   logout,
   register,
+  requestPasswordReset,
+  resendVerification,
   savedUser,
   submitQuestion,
   updateCurrentUser,
@@ -71,8 +74,47 @@ export function AuthPanel({ locale }: { locale: Locale }) {
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [recoveryMode, setRecoveryMode] = useState<'request' | 'confirm' | null>(null);
+  const [recoveryUid, setRecoveryUid] = useState('');
+  const [recoveryToken, setRecoveryToken] = useState('');
+  const [recoveryMessage, setRecoveryMessage] = useState('');
 
   const isBangla = locale === 'bn';
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const uid = params.get('reset_uid');
+    const token = params.get('reset_token');
+    if (uid && token) {
+      setRecoveryUid(uid);
+      setRecoveryToken(token);
+      setRecoveryMode('confirm');
+    }
+  }, []);
+
+  async function handleRecovery(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setRecoveryMessage('');
+    try {
+      if (recoveryMode === 'request') {
+        await requestPasswordReset(email);
+        setRecoveryMessage(isBangla ? 'অ্যাকাউন্ট থাকলে পাসওয়ার্ড পরিবর্তনের লিংক ইমেইলে পাঠানো হয়েছে।' : 'If this email has an account, a reset link has been sent.');
+      } else {
+        await confirmPasswordReset(recoveryUid, recoveryToken, password);
+        clearAuth();
+        setPassword('');
+        setRecoveryMode(null);
+        window.history.replaceState({}, '', `/${locale}/auth`);
+        setRecoveryMessage(isBangla ? 'পাসওয়ার্ড পরিবর্তন হয়েছে। এখন লগইন করুন।' : 'Password changed. You can now sign in.');
+      }
+    } catch (caught) {
+      setError(errorMessage(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -89,6 +131,22 @@ export function AuthPanel({ locale }: { locale: Locale }) {
       setBusy(false);
     }
   }
+
+  if (recoveryMode) return (
+    <div className="auth-layout">
+      <Link className="auth-home" href={`/${locale}`}>← {isBangla ? 'প্রচ্ছদে ফিরুন' : 'Back to home'}</Link>
+      <section className="auth-card">
+        <h1>{recoveryMode === 'request' ? (isBangla ? 'পাসওয়ার্ড পরিবর্তন' : 'Reset your password') : (isBangla ? 'নতুন পাসওয়ার্ড দিন' : 'Choose a new password')}</h1>
+        <form className="stack-form" onSubmit={handleRecovery}>
+          {recoveryMode === 'request' ? <label><span>{isBangla ? 'অ্যাকাউন্টের ইমেইল' : 'Account email'}</span><input required type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" /></label> : <label><span>{isBangla ? 'নতুন পাসওয়ার্ড' : 'New password'}</span><input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" /></label>}
+          {error ? <p className="form-error" role="alert">{error}</p> : null}
+          {recoveryMessage ? <p className="form-success" role="status">{recoveryMessage}</p> : null}
+          <button className="button button-wide" type="submit" disabled={busy}>{busy ? (isBangla ? 'অপেক্ষা করুন…' : 'Please wait…') : recoveryMode === 'request' ? (isBangla ? 'লিংক পাঠান' : 'Send reset link') : (isBangla ? 'পাসওয়ার্ড সংরক্ষণ' : 'Save new password')}</button>
+        </form>
+        <button className="text-button" type="button" onClick={() => { setRecoveryMode(null); setError(''); }}>{isBangla ? 'লগইনে ফিরুন' : 'Back to login'}</button>
+      </section>
+    </div>
+  );
 
   return (
     <div className="auth-layout">
@@ -133,10 +191,12 @@ export function AuthPanel({ locale }: { locale: Locale }) {
             <input required minLength={8} type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete={mode === 'login' ? 'current-password' : 'new-password'} placeholder={isBangla ? 'কমপক্ষে ৮ অক্ষর' : 'At least 8 characters'} />
           </label>
           {error ? <p className="form-error" role="alert">{error}</p> : null}
+          {recoveryMessage ? <p className="form-success" role="status">{recoveryMessage}</p> : null}
           <button className="button button-wide" disabled={busy} type="submit">
             {busy ? (isBangla ? 'অপেক্ষা করুন…' : 'Please wait…') : mode === 'login' ? (isBangla ? 'লগইন করুন' : 'Log in') : (isBangla ? 'অ্যাকাউন্ট তৈরি করুন' : 'Create my account')}
           </button>
         </form>
+        {mode === 'login' ? <button className="text-button" type="button" onClick={() => { setRecoveryMode('request'); setError(''); setRecoveryMessage(''); }}>{isBangla ? 'পাসওয়ার্ড ভুলে গেছেন?' : 'Forgot your password?'}</button> : null}
         <p className="form-note">{isBangla ? 'অ্যাকাউন্ট খুললে আপনি প্রশ্ন সংরক্ষণ এবং তার অগ্রগতি অনুসরণ করতে পারবেন।' : 'Your account lets you save questions and follow their progress.'}</p>
       </section>
     </div>
@@ -204,6 +264,7 @@ function QuestionItem({ question, locale, onUpdate }: { question: Question; loca
       </summary>
       <div className="question-detail-panel">
         <div className="question-detail-copy"><p className="section-kicker">{isBangla ? 'সম্পূর্ণ প্রশ্ন' : 'Full question'}</p><p>{question.original_body}</p><div className="question-flags"><span>{question.language === 'bn' ? 'বাংলা' : 'English'}</span><span>{question.is_public ? (isBangla ? 'বেনামে প্রকাশের অনুমতি' : 'Public consent given') : (isBangla ? 'ব্যক্তিগত' : 'Private')}</span></div></div>
+        {question.approved_answer ? <div className="question-detail-copy"><p className="section-kicker">{isBangla ? 'পর্যালোচিত উত্তর' : 'Reviewed answer'}</p><p style={{ whiteSpace: 'pre-wrap' }}>{question.approved_answer.body}</p>{question.approved_answer.references.length ? <div><strong>{isBangla ? 'তথ্যসূত্র' : 'References'}</strong><ul>{question.approved_answer.references.map((reference, index) => <li key={`${index}-${reference}`}>{reference}</li>)}</ul></div> : null}</div> : null}
         {question.clarifications.length ? <div className="clarification-thread"><p className="section-kicker">{isBangla ? 'ব্যাখ্যা ও উত্তর' : 'Clarifications'}</p>{question.clarifications.map((item) => <div key={item.id}><p>{item.body}</p><time>{new Date(item.created_at).toLocaleDateString(locale === 'bn' ? 'bn-BD' : 'en-US')}</time></div>)}</div> : null}
         {question.status !== 'answered' && question.status !== 'withdrawn' ? <form className="clarification-form" onSubmit={sendClarification}><label><span>{isBangla ? 'আরও তথ্য যোগ করুন' : 'Add more context'}</span><textarea value={reply} onChange={(event) => setReply(event.target.value)} rows={3} placeholder={isBangla ? 'প্রয়োজনীয় ব্যাখ্যা লিখুন…' : 'Write a clarification for the assigned team…'} /></label><div><button className="button button-small" type="submit" disabled={busy || !reply.trim()}>{isBangla ? 'পাঠান' : 'Send'}</button><button className="text-button danger-link" type="button" onClick={withdraw} disabled={busy}>{isBangla ? 'প্রত্যাহার' : 'Withdraw'}</button></div></form> : null}
         {error ? <p className="form-error" role="alert">{error}</p> : null}{notice ? <p className="form-success" role="status">{notice}</p> : null}
@@ -224,6 +285,8 @@ export function AccountPanel({ locale }: { locale: Locale }) {
   const [displayName, setDisplayName] = useState('');
   const [profileBusy, setProfileBusy] = useState(false);
   const [profileNotice, setProfileNotice] = useState('');
+  const [verificationNotice, setVerificationNotice] = useState('');
+  const [verificationBusy, setVerificationBusy] = useState(false);
   const isBangla = locale === 'bn';
 
   useEffect(() => {
@@ -266,6 +329,19 @@ export function AccountPanel({ locale }: { locale: Locale }) {
     }
   }
 
+  async function sendVerificationAgain() {
+    setVerificationBusy(true);
+    setVerificationNotice('');
+    try {
+      await resendVerification();
+      setVerificationNotice(isBangla ? 'নতুন যাচাইকরণ লিংক ইমেইলে পাঠানো হয়েছে।' : 'A new verification link was emailed to you.');
+    } catch (caught) {
+      setVerificationNotice(errorMessage(caught));
+    } finally {
+      setVerificationBusy(false);
+    }
+  }
+
   function updateQuestion(updated: Question) {
     setQuestions((items) => items.map((item) => item.id === updated.id ? updated : item));
   }
@@ -291,6 +367,7 @@ export function AccountPanel({ locale }: { locale: Locale }) {
         <div><strong>{questions.filter((question) => question.status === 'answered').length}</strong><span>{isBangla ? 'উত্তর পাওয়া' : 'Answered'}</span></div>
         <div><strong>{user.email_verified ? '✓' : '!'}</strong><span>{user.email_verified ? (isBangla ? 'ইমেইল যাচাইকৃত' : 'Email verified') : (isBangla ? 'ইমেইল যাচাই বাকি' : 'Verify your email')}</span></div>
       </div>
+      {!user.email_verified ? <div className="form-note"><p>{isBangla ? 'প্রশ্ন জমা দিতে ইমেইল যাচাই করুন।' : 'Verify your email before submitting a question.'}</p><button className="button button-small" type="button" onClick={sendVerificationAgain} disabled={verificationBusy}>{verificationBusy ? (isBangla ? 'পাঠানো হচ্ছে…' : 'Sending…') : (isBangla ? 'নতুন লিংক পাঠান' : 'Resend verification link')}</button>{verificationNotice ? <p role="status">{verificationNotice}</p> : null}</div> : null}
 
       <section className="question-list-section">
         <div className="section-heading"><div><p className="section-kicker">{isBangla ? 'আপনার প্রশ্ন' : 'Your questions'}</p><h2>{isBangla ? 'যাত্রার অগ্রগতি' : 'Follow your journey'}</h2></div></div>

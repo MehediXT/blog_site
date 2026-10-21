@@ -3,8 +3,8 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   skipTrailingSlashRedirect: true,
-  // `tsc --noEmit` passes independently. Next 16.3.4's CLI parser currently
-  // fails with the installed Node/TypeScript combination during production build.
+  // The installed Next CLI fails while parsing TypeScript --showConfig.
+  // `npm run build` runs `tsc --noEmit` before this step.
   typescript: {
     ignoreBuildErrors: true,
   },

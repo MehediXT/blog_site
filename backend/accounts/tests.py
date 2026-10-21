@@ -1,7 +1,13 @@
 from django.contrib.auth import get_user_model
+from django.core import mail
+from django.test import override_settings
+from django.utils import timezone
+from datetime import timedelta
+from urllib.parse import parse_qs, urlparse
 from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import RefreshToken
 
-from accounts.models import ScholarProfile, UserProfile
+from accounts.models import EmailVerificationToken, ScholarProfile, UserProfile
 
 
 User = get_user_model()
@@ -38,6 +44,53 @@ class JWTAuthenticationTests(APITestCase):
     def test_me_requires_jwt(self):
         response = self.client.get('/api/v1/me/')
         self.assertEqual(response.status_code, 401)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_expired_verification_link_can_be_replaced(self):
+        old = EmailVerificationToken.objects.create(user=self.user, token='old-token')
+        EmailVerificationToken.objects.filter(pk=old.pk).update(
+            created_at=timezone.now() - timedelta(days=3)
+        )
+        self.assertEqual(self.client.get(
+            '/api/v1/auth/verify-email/old-token/'
+        ).status_code, 400)
+        self.client.force_authenticate(self.user)
+        response = self.client.post('/api/v1/auth/resend-verification/', {}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.data['sent'])
+        self.assertEqual(len(mail.outbox), 1)
+        new_token = EmailVerificationToken.objects.filter(user=self.user).exclude(pk=old.pk).get()
+        self.assertEqual(self.client.get(
+            f'/api/v1/auth/verify-email/{new_token.token}/'
+        ).status_code, 200)
+        self.assertTrue(UserProfile.objects.get(user=self.user).email_verified)
+
+    @override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
+    def test_password_reset_changes_password_and_revokes_refresh_token(self):
+        old_refresh = str(RefreshToken.for_user(self.user))
+        requested = self.client.post('/api/v1/auth/password-reset/', {
+            'email': self.user.email,
+        }, format='json')
+        self.assertEqual(requested.status_code, 200)
+        self.assertEqual(len(mail.outbox), 1)
+        link = mail.outbox[0].body.split()[-1]
+        params = parse_qs(urlparse(link).query)
+        confirmed = self.client.post('/api/v1/auth/password-reset/confirm/', {
+            'uid': params['reset_uid'][0],
+            'token': params['reset_token'][0],
+            'password': 'NewSafePass456!',
+        }, format='json')
+        self.assertEqual(confirmed.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('NewSafePass456!'))
+        self.assertEqual(self.client.post('/api/v1/auth/token/refresh/', {
+            'refresh': old_refresh,
+        }, format='json').status_code, 401)
+        self.assertEqual(self.client.post('/api/v1/auth/password-reset/confirm/', {
+            'uid': params['reset_uid'][0],
+            'token': params['reset_token'][0],
+            'password': 'AnotherPass789!',
+        }, format='json').status_code, 400)
 
 
 class ScholarApplicationApiTests(APITestCase):
