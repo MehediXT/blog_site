@@ -27,10 +27,12 @@ if not SECRET_KEY:
 if not DEBUG and (len(SECRET_KEY) < 50 or SECRET_KEY == 'replace-me'):
     raise ImproperlyConfigured('Set a long, unique DJANGO_SECRET_KEY for production.')
 
+
 ALLOWED_HOSTS = [
-    host.strip()
-    for host in os.getenv('DJANGO_ALLOWED_HOSTS', '127.0.0.1,localhost').split(',')
-    if host.strip()
+    "localhost",
+    "127.0.0.1",
+    "django",
+    "ilm.mehedi.blitz.cloud",
 ]
 # The Next.js container calls Django by this Docker service name. Keep it in
 # the allowlist whenever the Compose database service is being used, even if
@@ -235,5 +237,6 @@ CSRF_TRUSTED_ORIGINS = [
     ).split(',')
     if origin.strip()
 ]
+
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
