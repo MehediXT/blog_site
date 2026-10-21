@@ -75,7 +75,8 @@ from .permissions import (
     is_moderator,
     is_verified_scholar,
 )
-
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -629,6 +630,7 @@ class PublicFatwaListAPIView(APIView):
             publications = publications.filter(approved_revision__created_by_id=scholar_id)
         return publications
 
+    @method_decorator(cache_page(60 * 5))
     def get(self, request, *args, **kwargs):
         paginator = PublicPageNumberPagination()
         page = paginator.paginate_queryset(self.get_queryset(request), request, view=self)
