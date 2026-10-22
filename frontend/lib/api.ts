@@ -163,19 +163,34 @@ export type ApiFailure = Error & { code?: string; fields?: Record<string, unknow
 
 type FatwaResponse = { results: Fatwa[]; count: number };
 
-const apiOrigin = (
-  process.env.API_ORIGIN ||
-  process.env.NEXT_PUBLIC_API_ORIGIN ||
-  'http://127.0.0.1:8000'
-).replace(/\/$/, '');
+const DEFAULT_ORIGIN =
+  process.env.NODE_ENV === 'production'
+    ? 'https://ilm.mehedi.blitz.cloud'
+    : 'http://127.0.0.1:8000';
+
+function normalizeApiOrigin(raw?: string) {
+  if (!raw) return DEFAULT_ORIGIN;
+  return raw.replace(/\/$/, '').replace(/\/api\/v1$/, '');
+}
+
+const serverApiOrigin = normalizeApiOrigin(
+  process.env.API_ORIGIN || process.env.NEXT_PUBLIC_API_ORIGIN
+);
+
+const publicApiOrigin = normalizeApiOrigin(
+  process.env.NEXT_PUBLIC_API_ORIGIN
+);
 
 function apiUrl(path: string) {
-  // Browser requests stay same-origin and are routed by Caddy/Next.js.
-  // Server components use the Docker-internal Django service URL.
-  return typeof window === 'undefined'
-    ? `${apiOrigin}/api/v1${path}`
-    : `/api/v1${path}`;
+  const origin =
+    typeof window === 'undefined'
+      ? serverApiOrigin
+      : publicApiOrigin;
+
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${origin}/api/v1${cleanPath}`;
 }
+
 
 async function getJson<T>(path: string): Promise<T | null> {
   try {

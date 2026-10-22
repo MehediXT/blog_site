@@ -28,12 +28,22 @@ if not DEBUG and (len(SECRET_KEY) < 50 or SECRET_KEY == 'replace-me'):
     raise ImproperlyConfigured('Set a long, unique DJANGO_SECRET_KEY for production.')
 
 
+allowed_hosts_env = os.getenv('DJANGO_ALLOWED_HOSTS', '')
 ALLOWED_HOSTS = [
-    "localhost",
-    "127.0.0.1",
-    "django",
-    "ilm.mehedi.blitz.cloud",
+    host.strip()
+    for host in allowed_hosts_env.split(',')
+    if host.strip()
 ]
+for default_host in [
+    'localhost',
+    '127.0.0.1',
+    'django',
+    'ilm.mehedi.blitz.cloud',
+    '.blitz.cloud',
+]:
+    if default_host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(default_host)
+
 # The Next.js container calls Django by this Docker service name. Keep it in
 # the allowlist whenever the Compose database service is being used, even if
 # a production domain was supplied in DJANGO_ALLOWED_HOSTS.
@@ -50,6 +60,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
     'api',
     'accounts',
     'fatwas',
@@ -59,6 +70,8 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -147,6 +160,15 @@ USE_TZ = True
 STATIC_URL = '/static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
+STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
+    'staticfiles': {
+        'BACKEND': 'whitenoise.storage.CompressedStaticFilesStorage',
+    },
+}
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 
@@ -229,13 +251,28 @@ SIMPLE_JWT = {
 if not DEBUG and SIMPLE_JWT['SIGNING_KEY'].startswith('replace'):
     raise ImproperlyConfigured('Set a unique DJANGO_JWT_SIGNING_KEY for production.')
 
+csrf_trusted_env = os.getenv('DJANGO_CSRF_TRUSTED_ORIGINS', '')
 CSRF_TRUSTED_ORIGINS = [
     origin.strip()
-    for origin in os.getenv(
-        'DJANGO_CSRF_TRUSTED_ORIGINS',
-        'http://localhost:3000,http://127.0.0.1:3000',
-    ).split(',')
+    for origin in csrf_trusted_env.split(',')
     if origin.strip()
+]
+for default_csrf_origin in [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'https://ilm.mehedi.blitz.cloud',
+    'https://*.blitz.cloud',
+    'https://*.vercel.app',
+]:
+    if default_csrf_origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(default_csrf_origin)
+
+# CORS Configuration
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^https:\/\/.*\.vercel\.app$",
+    r"^https:\/\/.*\.blitz\.cloud$",
 ]
 
 SECURE_CONTENT_TYPE_NOSNIFF = True

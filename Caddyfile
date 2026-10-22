@@ -1,14 +1,16 @@
 {$SITE_ADDRESS} {
-    @backend path /api* /admin* /static* /media*
-    @static path /static/*
-    handle @static {
-        root * /srv/static
-        file_server
-    }
-    handle @backend {
-        reverse_proxy django:8000
-    }
-    handle {
-        reverse_proxy frontend:3000
-    }
+	handle_path /static/* {
+		root * /srv/static
+		file_server
+	}
+
+	@backend path /api* /admin*
+	handle @backend {
+		reverse_proxy django:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
 }
+
