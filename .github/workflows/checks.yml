@@ -11,9 +11,9 @@ jobs:
       postgres:
         image: postgres:17-alpine
         env:
-          POSTGRES_DB: universe_test
-          POSTGRES_USER: universe
-          POSTGRES_PASSWORD: test-password
+          POSTGRES_DB: blog_site
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
         ports:
           - 5432:5432
         options: >-
