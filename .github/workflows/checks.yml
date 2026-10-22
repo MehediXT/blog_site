@@ -24,9 +24,9 @@ jobs:
     env:
       DJANGO_DEBUG: "True"
       DB_ENGINE: django.db.backends.postgresql
-      DB_NAME: universe_test
-      DB_USER: universe
-      DB_PASSWORD: test-password
+      DB_NAME: blog_site
+      DB_USER: postgres
+      DB_PASSWORD: password
       DB_HOST: localhost
       DB_PORT: "5432"
     steps:
